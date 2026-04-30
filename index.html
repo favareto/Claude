@@ -176,20 +176,34 @@ button { cursor: pointer; font-family: inherit; border: none; }
 .mc-info span { font-size: 11px; color: rgba(255,255,255,0.4); }
 .mc-price { font-size: 22px; font-weight: 900; color: var(--ambar); white-space: nowrap; }
 .hero-footer-bar {
-  background: var(--laranja);
+  background: var(--carvao);
   padding: 0;
+  overflow: hidden;
+  border-top: 2px solid var(--laranja);
+  border-bottom: 2px solid var(--laranja);
 }
-.hero-footer-bar .container {
-  display: flex; gap: 0;
+.hfb-track {
+  display: flex;
+  width: max-content;
+  animation: ticker 32s linear infinite;
+}
+.hfb-track:hover { animation-play-state: paused; }
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 .hfb-item {
-  flex: 1; display: flex; align-items: center; gap: 12px;
-  padding: 16px 24px;
-  border-right: 1px solid rgba(255,255,255,0.2);
-  font-size: 12px; font-weight: 600; color: white;
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 11px 36px;
+  font-size: 12px; font-weight: 700; letter-spacing: 1.5px;
+  text-transform: uppercase; color: white; white-space: nowrap;
 }
-.hfb-item:last-child { border-right: none; }
-.hfb-icon { font-size: 20px; }
+.hfb-sep {
+  color: var(--laranja); font-size: 18px;
+  line-height: 1; align-self: center; flex-shrink: 0;
+  user-select: none;
+}
+.hfb-icon { font-size: 16px; }
 
 /* ═══════════════════════════════════════════
    COMO FUNCIONA
@@ -632,10 +646,8 @@ footer { background: var(--carvao); color: white; }
   .hero-visual { display: none; }
   .hero-badge { justify-content: center; }
 
-  /* BARRA BENEFÍCIOS */
-  .hero-footer-bar .container { flex-direction: column; gap: 0; }
-  .hfb-item { padding: 12px 16px; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.07); font-size: 12px; }
-  .hfb-item:last-child { border-bottom: none; }
+  /* BARRA BENEFÍCIOS — ticker não precisa de ajuste mobile */
+  .hfb-item { padding: 10px 28px; font-size: 11px; }
 
   /* COMO FUNCIONA */
   .como { padding: 60px 0; }
@@ -806,11 +818,32 @@ footer { background: var(--carvao); color: white; }
 
 <!-- BARRA DE BENEFÍCIOS -->
 <div class="hero-footer-bar">
-  <div class="container" style="display:flex">
+  <div class="hfb-track">
     <div class="hfb-item"><span class="hfb-icon">🏭</span> Fabricação Própria — MDF Premium</div>
+    <span class="hfb-sep">◆</span>
     <div class="hfb-item"><span class="hfb-icon">📐</span> 100% Sob Medida Online</div>
+    <span class="hfb-sep">◆</span>
     <div class="hfb-item"><span class="hfb-icon">🚚</span> Entrega em Toda São Paulo</div>
+    <span class="hfb-sep">◆</span>
     <div class="hfb-item"><span class="hfb-icon">🔒</span> Pagamento Seguro</div>
+    <span class="hfb-sep">◆</span>
+    <div class="hfb-item"><span class="hfb-icon">⏱️</span> Prazo: 10 Dias Úteis</div>
+    <span class="hfb-sep">◆</span>
+    <div class="hfb-item"><span class="hfb-icon">🚀</span> Frete Grátis acima de R$ 800</div>
+    <span class="hfb-sep">◆</span>
+    <!-- duplicado para loop contínuo sem salto -->
+    <div class="hfb-item"><span class="hfb-icon">🏭</span> Fabricação Própria — MDF Premium</div>
+    <span class="hfb-sep">◆</span>
+    <div class="hfb-item"><span class="hfb-icon">📐</span> 100% Sob Medida Online</div>
+    <span class="hfb-sep">◆</span>
+    <div class="hfb-item"><span class="hfb-icon">🚚</span> Entrega em Toda São Paulo</div>
+    <span class="hfb-sep">◆</span>
+    <div class="hfb-item"><span class="hfb-icon">🔒</span> Pagamento Seguro</div>
+    <span class="hfb-sep">◆</span>
+    <div class="hfb-item"><span class="hfb-icon">⏱️</span> Prazo: 10 Dias Úteis</div>
+    <span class="hfb-sep">◆</span>
+    <div class="hfb-item"><span class="hfb-icon">🚀</span> Frete Grátis acima de R$ 800</div>
+    <span class="hfb-sep">◆</span>
   </div>
 </div>
 
