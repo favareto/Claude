@@ -3,16 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; frame-ancestors 'none';">
-<meta name="description" content="Móveis planejados sob medida com preço acessível. Monte seu projeto online e receba em toda São Paulo em até 10 dias úteis.">
-<meta name="robots" content="index, follow">
-<meta property="og:type" content="website">
-<meta property="og:title" content="Planejado Popular — Modulares Sob Medida">
-<meta property="og:description" content="Cozinha, quarto, banheiro e sala com qualidade de planejado e preço popular. Frete grátis acima de R$ 800.">
-<meta property="og:locale" content="pt_BR">
 <title>Planejado Popular — Modulares Sob Medida</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 /* ═══════════════════════════════════════════
@@ -450,10 +441,6 @@ button { cursor: pointer; font-family: inherit; border: none; }
 }
 .rev-edit:hover { color:var(--ambar); }
 
-/* ── GRID DE REVISÃO (passo 6) ── */
-.rev-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
-@media (max-width: 768px) { .rev-grid { grid-template-columns:1fr; } }
-
 /* ── SELETOR DE ESCOLHA ── */
 .escolha-opts { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:8px; }
 .escolha-opt {
@@ -755,12 +742,6 @@ footer { background: var(--carvao); color: white; }
 </style>
 </head>
 <body>
-
-<noscript>
-  <div style="background:#F26A00;color:#fff;text-align:center;padding:16px;font-family:sans-serif;font-size:14px;">
-    Este site requer JavaScript para funcionar corretamente. Por favor, habilite-o no seu navegador.
-  </div>
-</noscript>
 
 <!-- TOPBAR -->
 <div class="topbar">
@@ -1117,7 +1098,7 @@ footer { background: var(--carvao); color: white; }
       <!-- ── PASSO 6: REVISÃO E RESUMO ── -->
       <div class="config-panel" id="panel-6">
         <div class="panel-hint">Revise seu pedido antes de finalizar:</div>
-        <div class="rev-grid">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
           <div class="rev-card">
             <div class="rev-label">Ambiente</div>
             <div class="rev-val" id="res-ambiente">Cozinha</div>
@@ -1331,41 +1312,6 @@ footer { background: var(--carvao); color: white; }
 <a href="https://wa.me/5511999999999" target="_blank" class="whats-float" title="Falar no WhatsApp">💬</a>
 
 <script>
-(function () {
-'use strict';
-
-// ── CONFIGURAÇÃO — TODO: substituir pelo número real antes de publicar ──
-const WHATSAPP_NUMBER = '5511999999999';
-
-// ── UTILITÁRIOS ──
-const CSS_TRANS_MS = 220; // espelha --trans: 0.22s no CSS
-
-function escapeHTML(str) {
-  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-
-function showError(msg) {
-  let t = document.getElementById('pp-toast');
-  if (!t) {
-    t = document.createElement('div');
-    t.id = 'pp-toast';
-    t.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:#1C1C1C;color:#fff;padding:12px 24px;border-radius:8px;font-size:13px;font-weight:600;z-index:600;opacity:0;transition:opacity 0.22s ease;pointer-events:none;text-align:center;white-space:nowrap;';
-    document.body.appendChild(t);
-  }
-  t.textContent = msg;
-  t.style.opacity = '1';
-  clearTimeout(t._t);
-  t._t = setTimeout(() => { t.style.opacity = '0'; }, 3000);
-}
-
-function saveCart() { try { localStorage.setItem('pp_cart', JSON.stringify(cart)); } catch(e) {} }
-function loadCart() {
-  try {
-    const raw = localStorage.getItem('pp_cart');
-    if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr)) arr.forEach(i => cart.push(i)); }
-  } catch(e) {}
-}
-
 // ═══════════════════════════════════════════
 //  ESCOLHAS POR AMBIENTE
 // ═══════════════════════════════════════════
@@ -1530,8 +1476,8 @@ function selectAmbienteConfig(el, nome) {
   el.classList.add('selecting');
   state.ambiente = nome; state.escolha = null; state.modulo = null; state.basePrice = 0;
   renderEscolhas(nome);
-  setTimeout(() => { el.classList.remove('selecting'); el.classList.add('selected'); }, CSS_TRANS_MS * 0.7);
-  setTimeout(() => goStep(2), CSS_TRANS_MS * 1.5);
+  setTimeout(() => { el.classList.remove('selecting'); el.classList.add('selected'); }, 150);
+  setTimeout(() => goStep(2), 320);
 }
 
 // ═══════════════════════════════════════════
@@ -1543,10 +1489,10 @@ function renderEscolhas(ambiente) {
   if (hint) hint.textContent = ambiente;
   const opts = ESCOLHAS[ambiente] || [];
   container.innerHTML = opts.map(o => `
-    <button type="button" class="escolha-opt" data-nome="${escapeHTML(o.nome)}">
-      <span class="escolha-emoji">${escapeHTML(o.emoji)}</span>
-      <span class="escolha-name">${escapeHTML(o.nome)}</span>
-      <span class="escolha-desc">${escapeHTML(o.desc)}</span>
+    <button class="escolha-opt" onclick="selectEscolha(this,'${o.nome}')">
+      <span class="escolha-emoji">${o.emoji}</span>
+      <span class="escolha-name">${o.nome}</span>
+      <span class="escolha-desc">${o.desc}</span>
     </button>`).join('');
 }
 
@@ -1555,8 +1501,8 @@ function selectEscolha(el, nome) {
   el.classList.add('selecting');
   state.escolha = nome; state.modulo = null; state.basePrice = 0;
   renderModulos(state.ambiente, nome);
-  setTimeout(() => { el.classList.remove('selecting'); el.classList.add('selected'); }, CSS_TRANS_MS * 0.7);
-  setTimeout(() => goStep(3), CSS_TRANS_MS * 1.5);
+  setTimeout(() => { el.classList.remove('selecting'); el.classList.add('selected'); }, 150);
+  setTimeout(() => goStep(3), 320);
 }
 
 // ═══════════════════════════════════════════
@@ -1569,9 +1515,9 @@ function renderModulos(ambiente, escolha) {
   const key = `${ambiente}|${escolha}`;
   const mods = MODULOS[key] || [];
   grid.innerHTML = mods.map((m,i) => `
-    <button type="button" class="module-opt${i===0?' selected':''}" data-nome="${escapeHTML(m.nome)}" data-preco="${m.preco}">
-      <div class="mo-icon">${escapeHTML(m.icon)}</div>
-      <div class="mo-name">${escapeHTML(m.nome)}</div>
+    <button class="module-opt${i===0?' selected':''}" onclick="selectModule(this,'${m.nome}',${m.preco})">
+      <div class="mo-icon">${m.icon}</div>
+      <div class="mo-name">${m.nome}</div>
       <div class="mo-price">a partir de R$ ${m.preco.toLocaleString('pt-BR')}</div>
     </button>`).join('');
   if (mods.length > 0) { state.modulo = mods[0].nome; state.basePrice = mods[0].preco; calcPrice(); }
@@ -1581,23 +1527,17 @@ function selectModule(el, nome, preco) {
   document.querySelectorAll('#module-grid-dynamic .module-opt').forEach(b => b.classList.remove('selected','selecting'));
   el.classList.add('selecting');
   state.modulo = nome; state.basePrice = preco; calcPrice();
-  setTimeout(() => { el.classList.remove('selecting'); el.classList.add('selected'); }, CSS_TRANS_MS * 0.7);
-  setTimeout(() => goStep(4), CSS_TRANS_MS * 1.5);
+  setTimeout(() => { el.classList.remove('selecting'); el.classList.add('selected'); }, 150);
+  setTimeout(() => goStep(4), 320);
 }
 
 // ═══════════════════════════════════════════
 //  PASSO 4 — MEDIDAS
 // ═══════════════════════════════════════════
-function clampDim(val, min, max, fallback) {
-  const n = parseFloat(val);
-  if (!isFinite(n) || n < min) return fallback;
-  return n > max ? max : n;
-}
-
 function calcPrice() {
-  const l = clampDim(document.getElementById('inp-largura')?.value, 20, 600, 60);
-  const h = clampDim(document.getElementById('inp-altura')?.value,  20, 300, 70);
-  const p = clampDim(document.getElementById('inp-prof')?.value,    15,  80, 35);
+  const l = parseFloat(document.getElementById('inp-largura')?.value) || 60;
+  const h = parseFloat(document.getElementById('inp-altura')?.value)  || 70;
+  const p = parseFloat(document.getElementById('inp-prof')?.value)    || 35;
   state.largura = l; state.altura = h; state.prof = p;
   if (!state.basePrice) { const el = document.getElementById('price-preview'); if(el) el.textContent='R$ –'; return; }
   const price = Math.max(state.basePrice, Math.min(
@@ -1615,8 +1555,8 @@ function selectCor(el, nome) {
   document.querySelectorAll('#cor-grid .cor-opt').forEach(c => c.classList.remove('selected','selecting'));
   el.classList.add('selecting');
   state.cor = nome;
-  setTimeout(() => { el.classList.remove('selecting'); el.classList.add('selected'); }, CSS_TRANS_MS * 0.7);
-  setTimeout(() => goStep(6), CSS_TRANS_MS * 1.5);
+  setTimeout(() => { el.classList.remove('selecting'); el.classList.add('selected'); }, 150);
+  setTimeout(() => goStep(6), 320);
 }
 
 // ═══════════════════════════════════════════
@@ -1638,18 +1578,17 @@ function updateResumo() {
 //  CARRINHO
 // ═══════════════════════════════════════════
 function addToCart() {
-  if (!state.modulo) { showError('Selecione um módulo antes de adicionar ao carrinho.'); return; }
+  if (!state.modulo) { alert('Selecione um módulo antes!'); return; }
   const price = state.price || state.basePrice;
-  if (!price) { showError('Erro ao calcular o preço. Verifique as medidas.'); return; }
   cart.push({ id:Date.now(), ambiente:state.ambiente, escolha:state.escolha, modulo:state.modulo,
     medidas:`${state.largura}×${state.altura}×${state.prof}cm`, cor:state.cor, price });
-  saveCart(); updateCartUI(); toggleCart();
+  updateCartUI(); toggleCart();
 }
 
 function removeFromCart(id) {
   const idx = cart.findIndex(i => i.id === id);
   if (idx > -1) cart.splice(idx, 1);
-  saveCart(); updateCartUI();
+  updateCartUI();
 }
 
 function updateCartUI() {
@@ -1665,11 +1604,11 @@ function updateCartUI() {
   itemsEl.innerHTML = cart.map(item => `
     <div class="carr-item">
       <div class="ci-info">
-        <div class="ci-name">${escapeHTML(item.modulo)}</div>
-        <div class="ci-details">${escapeHTML(item.ambiente)} · ${escapeHTML(item.escolha)} · ${escapeHTML(item.medidas)} · ${escapeHTML(item.cor)}</div>
+        <div class="ci-name">${item.modulo}</div>
+        <div class="ci-details">${item.ambiente} · ${item.escolha} · ${item.medidas} · ${item.cor}</div>
       </div>
       <div class="ci-price">R$ ${item.price.toLocaleString('pt-BR')}</div>
-      <button type="button" class="ci-remove" data-id="${item.id}">×</button>
+      <button class="ci-remove" onclick="removeFromCart(${item.id})">×</button>
     </div>`).join('');
   const total = cart.reduce((s,i) => s+i.price, 0);
   document.getElementById('carr-total-val').textContent = 'R$ '+total.toLocaleString('pt-BR');
@@ -1677,15 +1616,15 @@ function updateCartUI() {
   const msg = encodeURIComponent('🪵 *Pedido — Planejado Popular*\n\n' +
     cart.map((i,n) => `${n+1}. *${i.modulo}*\n   🏠 ${i.ambiente} · ${i.escolha}\n   📐 ${i.medidas}\n   🎨 ${i.cor}\n   💰 R$ ${i.price.toLocaleString('pt-BR')}`).join('\n\n') +
     `\n\n*Total: R$ ${total.toLocaleString('pt-BR')}*\n\nGostaria de finalizar!`);
-  document.getElementById('carr-whats-btn').href = `https://wa.me/${WHATSAPP_NUMBER}?text=${msg}`;
+  document.getElementById('carr-whats-btn').href = `https://wa.me/5511999999999?text=${msg}`;
 }
 
 function sendWhats(e) {
   e.preventDefault();
-  if (!state.modulo) { showError('Selecione um módulo antes de enviar o pedido.'); return; }
+  if (!state.modulo) { alert('Selecione um módulo antes!'); return; }
   const price = state.price || state.basePrice;
   const msg = encodeURIComponent(`🪵 *Pedido — Planejado Popular*\n\n🏠 *Ambiente:* ${state.ambiente}\n📋 *Escolha:* ${state.escolha}\n📦 *Módulo:* ${state.modulo}\n📐 *Medidas:* ${state.largura} × ${state.altura} × ${state.prof} cm\n🎨 *Cor:* ${state.cor}\n💰 *Valor:* R$ ${price.toLocaleString('pt-BR')}\n\nGostaria de finalizar este pedido!`);
-  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${msg}`, '_blank', 'noopener,noreferrer');
+  window.open(`https://wa.me/5511999999999?text=${msg}`, '_blank');
 }
 
 function toggleCart() {
@@ -1698,58 +1637,9 @@ function selectAmbiente(amb) {
 }
 
 // ── INIT ──
-function initEventDelegation() {
-  // Escolha (passo 2) — gerado dinamicamente
-  const escolhaContainer = document.getElementById('escolha-opts-dynamic');
-  if (escolhaContainer) {
-    escolhaContainer.addEventListener('click', function(e) {
-      const btn = e.target.closest('.escolha-opt');
-      if (btn) selectEscolha(btn, btn.dataset.nome);
-    });
-  }
-  // Módulo (passo 3) — gerado dinamicamente
-  const moduleContainer = document.getElementById('module-grid-dynamic');
-  if (moduleContainer) {
-    moduleContainer.addEventListener('click', function(e) {
-      const btn = e.target.closest('.module-opt');
-      if (btn) selectModule(btn, btn.dataset.nome, Number(btn.dataset.preco));
-    });
-  }
-  // Remover item do carrinho — gerado dinamicamente
-  const carrItems = document.getElementById('carrItems');
-  if (carrItems) {
-    carrItems.addEventListener('click', function(e) {
-      const btn = e.target.closest('.ci-remove');
-      if (btn) removeFromCart(Number(btn.dataset.id));
-    });
-  }
-}
-
-function initWhatsAppLinks() {
-  document.querySelectorAll('a[href*="wa.me/"]').forEach(a => {
-    a.href = a.href.replace(/wa\.me\/\d+/, `wa.me/${WHATSAPP_NUMBER}`);
-    if (!a.rel) a.rel = 'noopener noreferrer';
-  });
-}
-
-loadCart();
-initEventDelegation();
-initWhatsAppLinks();
 renderEscolhas('Cozinha');
 renderModulos('Cozinha', 'Conjunto Inferior');
 calcPrice();
-updateCartUI();
-
-// Expõe para os onclick estáticos no HTML
-window.goStep               = goStep;
-window.toggleCart           = toggleCart;
-window.addToCart            = addToCart;
-window.sendWhats            = sendWhats;
-window.selectAmbiente       = selectAmbiente;
-window.selectAmbienteConfig = selectAmbienteConfig;
-window.selectCor            = selectCor;
-
-}()); // fim do módulo IIFE
 </script>
 </body>
 </html>
