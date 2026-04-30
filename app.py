@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import shutil
+import socket
 import tempfile
 import subprocess
 import threading
@@ -428,5 +429,68 @@ with gr.Blocks(title="Video Editor Pro", css=CSS) as demo:
     )
 
 
+def _local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+def _print_qr(url: str):
+    try:
+        import qrcode
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(url)
+        qr.make(fit=True)
+        print("\n" + "═" * 52)
+        print("  Escaneie o QR Code abaixo com o celular:")
+        print("═" * 52)
+        qr.print_ascii(invert=True)
+        print(f"  URL: {url}")
+        print("═" * 52 + "\n")
+    except Exception:
+        print(f"\n  Acesse: {url}\n")
+
+
+def _show_access_info(local_url: str, share_url: str | None):
+    local_ip = _local_ip()
+    wifi_url = f"http://{local_ip}:7860"
+
+    print("\n" + "═" * 52)
+    print("  VIDEO EDITOR PRO — Acesso")
+    print("═" * 52)
+    print(f"  Mesmo computador : {local_url}")
+    print(f"  Rede WiFi local  : {wifi_url}")
+    if share_url:
+        print(f"  Link público     : {share_url}")
+    print("═" * 52)
+
+    # QR do link público tem prioridade (funciona fora do WiFi)
+    qr_url = share_url if share_url else wifi_url
+    _print_qr(qr_url)
+
+
 if __name__ == "__main__":
-    demo.launch(inbrowser=True, share=False)
+    result = demo.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=True,
+        inbrowser=False,
+        prevent_thread_lock=True,
+        quiet=True,
+    )
+    local_url = f"http://127.0.0.1:7860"
+    share_url = getattr(result, "share_url", None) or (
+        result[2] if isinstance(result, tuple) and len(result) > 2 else None
+    )
+    _show_access_info(local_url, share_url)
+
+    # mantém o processo vivo
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        print("\nAplicação encerrada.")
