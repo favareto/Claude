@@ -14,7 +14,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
 /* ═══════════════════════════════════════════
    TOKENS
@@ -753,113 +752,6 @@ footer { background: var(--carvao); color: white; }
   .hero h1 { font-size: 28px !important; }
   .hero-stats { flex-direction: column; align-items: center; gap: 12px; }
 }
-
-/* ═══════════════════════════════════════════
-   LUCIDE — normalização dos SVGs
-═══════════════════════════════════════════ */
-[data-lucide], svg.lucide { display: inline-block; vertical-align: middle; }
-
-/* Ícones do navbar */
-.nav-whats svg.lucide, .nav-cart svg.lucide { width: 15px; height: 15px; stroke-width: 2.5; }
-
-/* Ícones da barra de benefícios */
-.hfb-item svg.lucide { width: 18px; height: 18px; stroke-width: 2; flex-shrink: 0; }
-
-/* Ícones dos steps */
-.step-icon { color: white; font-size: 0; }
-.step-icon svg.lucide { width: 28px; height: 28px; stroke-width: 1.8; }
-
-/* Ícones da seção diferencial */
-.diff-icon { width: 56px; height: 56px; border-radius: 14px; background: var(--laranja); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; color: white; }
-.diff-icon svg.lucide { width: 26px; height: 26px; stroke-width: 1.8; }
-.diff-tip-icon { flex-shrink: 0; color: var(--ambar); }
-.diff-tip-icon svg.lucide { width: 26px; height: 26px; stroke-width: 1.8; }
-
-/* Ícones dos botões */
-.btn svg.lucide { width: 15px; height: 15px; stroke-width: 2.2; }
-
-/* Ícone flutuante WhatsApp */
-.whats-float svg.lucide { width: 28px; height: 28px; stroke-width: 2; color: white; }
-
-/* ═══════════════════════════════════════════
-   MARQUEE — barra de benefícios
-═══════════════════════════════════════════ */
-.hero-footer-bar { overflow: hidden; }
-.hero-footer-bar .container { display: block; padding: 0; max-width: none; }
-.hfb-track {
-  display: flex;
-  width: max-content;
-  animation: marquee 28s linear infinite;
-}
-.hfb-track:hover { animation-play-state: paused; }
-.hfb-item { white-space: nowrap; border-right: 1px solid rgba(255,255,255,0.2); }
-@keyframes marquee {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-/* ═══════════════════════════════════════════
-   COMO FUNCIONA — conector entre steps
-═══════════════════════════════════════════ */
-.step-arrow-h {
-  display: flex; align-items: flex-start; justify-content: center;
-  padding-top: 64px; color: var(--laranja);
-}
-.step-arrow-h svg.lucide { width: 28px; height: 28px; stroke-width: 2; opacity: 0.7; }
-.como-steps {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr auto 1fr;
-  gap: 0 8px;
-  align-items: start;
-}
-@media (max-width: 768px) {
-  .como-steps { grid-template-columns: 1fr; gap: 16px; }
-  .step-arrow-h { display: none; }
-}
-@media (max-width: 1024px) and (min-width: 769px) {
-  .como-steps { grid-template-columns: 1fr auto 1fr auto 1fr; gap: 0 4px; }
-}
-
-/* ═══════════════════════════════════════════
-   FADE-IN AO ROLAR
-═══════════════════════════════════════════ */
-.fade-in {
-  opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.55s ease, transform 0.55s ease;
-}
-.fade-in.visible { opacity: 1; transform: translateY(0); }
-
-/* ═══════════════════════════════════════════
-   AMBIENTES — gradientes aprimorados
-═══════════════════════════════════════════ */
-.ac-cozinha  { background: linear-gradient(145deg, #2C1505 0%, #6B3212 55%, #A05822 100%); }
-.ac-quarto   { background: linear-gradient(145deg, #0C1A28 0%, #1A3855 55%, #2A5C85 100%); }
-.ac-banheiro { background: linear-gradient(145deg, #081A12 0%, #134530 55%, #1D6645 100%); }
-.ac-sala     { background: linear-gradient(145deg, #18100A 0%, #3A200E 55%, #6A3C1A 100%); }
-.ac-bg-placeholder::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    45deg,
-    rgba(255,255,255,0.015) 0px,
-    rgba(255,255,255,0.015) 1px,
-    transparent 1px,
-    transparent 12px
-  );
-  pointer-events: none;
-}
-.ac-bg-placeholder { position: relative; }
-
-/* ═══════════════════════════════════════════
-   TIPOGRAFIA — hierarquia aprimorada
-═══════════════════════════════════════════ */
-.step-card p  { font-size: 14px; line-height: 1.75; }
-.dep-card p   { font-size: 14px; line-height: 1.75; }
-.hero-sub     { font-size: 16px; line-height: 1.75; }
-.footer-brand p { font-size: 13px; line-height: 1.9; }
-.section-title  { letter-spacing: -0.5px; }
 </style>
 </head>
 <body>
@@ -890,10 +782,10 @@ footer { background: var(--carvao); color: white; }
     </ul>
     <div class="nav-actions">
       <a href="https://wa.me/5511999999999" target="_blank" class="nav-whats">
-        <i data-lucide="message-circle"></i> WhatsApp
+        💬 WhatsApp
       </a>
-      <button type="button" class="nav-cart" onclick="toggleCart()">
-        <i data-lucide="shopping-cart"></i> Carrinho
+      <button class="nav-cart" onclick="toggleCart()">
+        🛒 Carrinho
         <span class="cart-badge" id="cartBadge">0</span>
       </button>
     </div>
@@ -908,7 +800,7 @@ footer { background: var(--carvao); color: white; }
       <h1>Móveis<br><span class="hl">Planejados</span><br>ao Alcance<br>de Todos</h1>
       <p class="hero-sub">Mesma qualidade do móvel planejado — MDF premium, sob medida, do jeito que você precisa. Sem o custo da marcenaria tradicional. Você configura online, a gente fabrica e entrega.</p>
       <div class="hero-actions">
-        <a href="#configurador" class="btn btn-primary"><i data-lucide="ruler"></i> Monte Seu Móvel</a>
+        <a href="#configurador" class="btn btn-primary">📐 Monte Seu Móvel</a>
         <a href="#ambientes" class="btn btn-outline" style="color:white;border-color:rgba(255,255,255,0.3)">Ver Ambientes</a>
       </div>
       <div class="hero-stats">
@@ -933,22 +825,11 @@ footer { background: var(--carvao); color: white; }
 
 <!-- BARRA DE BENEFÍCIOS -->
 <div class="hero-footer-bar">
-  <div class="container">
-    <div class="hfb-track">
-      <div class="hfb-item"><i data-lucide="factory"></i> Fabricação Própria — MDF Premium</div>
-      <div class="hfb-item"><i data-lucide="ruler"></i> 100% Sob Medida Online</div>
-      <div class="hfb-item"><i data-lucide="truck"></i> Entrega em Toda São Paulo</div>
-      <div class="hfb-item"><i data-lucide="shield-check"></i> Pagamento Seguro</div>
-      <div class="hfb-item"><i data-lucide="clock"></i> Prazo: 10 Dias Úteis</div>
-      <div class="hfb-item"><i data-lucide="star"></i> Qualidade Planejado Popular</div>
-      <!-- duplicado para loop infinito -->
-      <div class="hfb-item"><i data-lucide="factory"></i> Fabricação Própria — MDF Premium</div>
-      <div class="hfb-item"><i data-lucide="ruler"></i> 100% Sob Medida Online</div>
-      <div class="hfb-item"><i data-lucide="truck"></i> Entrega em Toda São Paulo</div>
-      <div class="hfb-item"><i data-lucide="shield-check"></i> Pagamento Seguro</div>
-      <div class="hfb-item"><i data-lucide="clock"></i> Prazo: 10 Dias Úteis</div>
-      <div class="hfb-item"><i data-lucide="star"></i> Qualidade Planejado Popular</div>
-    </div>
+  <div class="container" style="display:flex">
+    <div class="hfb-item"><span class="hfb-icon">🏭</span> Fabricação Própria — MDF Premium</div>
+    <div class="hfb-item"><span class="hfb-icon">📐</span> 100% Sob Medida Online</div>
+    <div class="hfb-item"><span class="hfb-icon">🚚</span> Entrega em Toda São Paulo</div>
+    <div class="hfb-item"><span class="hfb-icon">🔒</span> Pagamento Seguro</div>
   </div>
 </div>
 
@@ -962,21 +843,19 @@ footer { background: var(--carvao); color: white; }
     <div class="como-steps">
       <div class="step-card">
         <div class="step-num">1</div>
-        <div class="step-icon"><i data-lucide="ruler"></i></div>
+        <div class="step-icon">📐</div>
         <h3>Escolha e Meça</h3>
         <p>Pegue a trena, meça o espaço e escolha o módulo que precisa: armário, balcão, gabinete, guarda-roupa e muito mais.</p>
       </div>
-      <div class="step-arrow-h"><i data-lucide="arrow-right"></i></div>
       <div class="step-card">
         <div class="step-num">2</div>
-        <div class="step-icon"><i data-lucide="palette"></i></div>
+        <div class="step-icon">🎨</div>
         <h3>Personalize</h3>
         <p>Informe as medidas exatas, escolha a cor e os opcionais. O preço atualiza em tempo real conforme você configura.</p>
       </div>
-      <div class="step-arrow-h"><i data-lucide="arrow-right"></i></div>
       <div class="step-card">
         <div class="step-num">3</div>
-        <div class="step-icon"><i data-lucide="package"></i></div>
+        <div class="step-icon">📦</div>
         <h3>Receba Montado</h3>
         <p>Pagamento seguro online ou pelo WhatsApp. Fabricamos em <strong>10 dias úteis</strong> e entregamos montado em toda São Paulo.</p>
       </div>
@@ -996,23 +875,23 @@ footer { background: var(--carvao); color: white; }
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;">
       <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px 28px;">
-        <div class="diff-icon"><i data-lucide="layers"></i></div>
+        <div style="font-size:32px;margin-bottom:16px;">🪵</div>
         <h3 style="color:white;font-size:17px;font-weight:800;margin-bottom:10px;">MDF Premium Nacional</h3>
         <p style="color:rgba(255,255,255,0.55);font-size:13px;line-height:1.7;">O mesmo material dos móveis planejados de alto padrão. Resistente, com acabamento fino e durabilidade de décadas.</p>
       </div>
       <div style="background:rgba(242,106,0,0.1);border:1px solid rgba(242,106,0,0.25);border-radius:16px;padding:32px 28px;">
-        <div class="diff-icon"><i data-lucide="move-diagonal"></i></div>
+        <div style="font-size:32px;margin-bottom:16px;">📏</div>
         <h3 style="color:white;font-size:17px;font-weight:800;margin-bottom:10px;">100% Sob Medida</h3>
         <p style="color:rgba(255,255,255,0.55);font-size:13px;line-height:1.7;">Cada peça fabricada nas medidas exatas do seu espaço. Nada de folga, nada de apertar — encaixa perfeito.</p>
       </div>
       <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px 28px;">
-        <div class="diff-icon"><i data-lucide="piggy-bank"></i></div>
+        <div style="font-size:32px;margin-bottom:16px;">💰</div>
         <h3 style="color:white;font-size:17px;font-weight:800;margin-bottom:10px;">Sem Custo de Visita</h3>
         <p style="color:rgba(255,255,255,0.55);font-size:13px;line-height:1.7;">Sem marceneiro na sua casa, sem projeto demorado, sem surpresa no final. Você configura online e recebe o preço na hora.</p>
       </div>
     </div>
     <div style="margin-top:32px;background:rgba(242,106,0,0.08);border:1px solid rgba(242,106,0,0.2);border-radius:12px;padding:24px 32px;display:flex;align-items:center;gap:20px;">
-      <div class="diff-tip-icon"><i data-lucide="lightbulb"></i></div>
+      <div style="font-size:28px;flex-shrink:0;">💡</div>
       <p style="color:rgba(255,255,255,0.75);font-size:14px;line-height:1.7;margin:0;">
         <strong style="color:var(--ambar);">A diferença é simples:</strong> um marceneiro cobra pelo projeto, pela visita e pela montagem no local. A Planejado Popular elimina essas etapas — e a economia vai pro seu bolso.
       </p>
@@ -1285,8 +1164,8 @@ footer { background: var(--carvao); color: white; }
           </div>
         </div>
         <div class="config-actions" style="margin-top:20px">
-          <button type="button" class="btn btn-add-cart" onclick="addToCart()"><i data-lucide="shopping-cart"></i> Adicionar ao Carrinho</button>
-          <a href="#" class="btn btn-whats" onclick="sendWhats(event)"><i data-lucide="message-circle"></i> Pedir pelo WhatsApp</a>
+          <button class="btn btn-add-cart" onclick="addToCart()">🛒 Adicionar ao Carrinho</button>
+          <a href="#" class="btn btn-whats" onclick="sendWhats(event)">💬 Pedir pelo WhatsApp</a>
         </div>
         <div class="config-nav">
           <button onclick="goStep(5)">← Editar Cor</button>
@@ -1367,8 +1246,8 @@ footer { background: var(--carvao); color: white; }
         <p>Nossa equipe responde em minutos pelo WhatsApp. É grátis!</p>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <a href="#configurador" class="btn btn-dark"><i data-lucide="ruler"></i> Montar Online</a>
-        <a href="https://wa.me/5511999999999?text=Olá! Quero montar meu projeto de móveis planejados." target="_blank" class="btn btn-whats"><i data-lucide="message-circle"></i> Chamar no WhatsApp</a>
+        <a href="#configurador" class="btn btn-dark">📐 Montar Online</a>
+        <a href="https://wa.me/5511999999999?text=Olá! Quero montar meu projeto de móveis planejados." target="_blank" class="btn btn-whats">💬 Chamar no WhatsApp</a>
       </div>
     </div>
   </div>
@@ -1427,7 +1306,7 @@ footer { background: var(--carvao); color: white; }
 <div class="overlay" id="overlay" onclick="toggleCart()"></div>
 <div class="carrinho-panel" id="carrinhoPanel">
   <div class="carr-header">
-    <h3><i data-lucide="shopping-cart"></i> Seu Carrinho</h3>
+    <h3>🛒 Seu Carrinho</h3>
     <button class="carr-close" onclick="toggleCart()">×</button>
   </div>
   <div class="carr-items" id="carrItems">
@@ -1442,14 +1321,14 @@ footer { background: var(--carvao); color: white; }
       <strong id="carr-total-val">R$ 0</strong>
     </div>
     <div class="carr-btns">
-      <a id="carr-whats-btn" href="#" target="_blank" class="btn btn-whats"><i data-lucide="message-circle"></i> Finalizar pelo WhatsApp</a>
-      <button type="button" class="btn btn-dark" style="justify-content:center;font-size:12px"><i data-lucide="credit-card"></i> Ir para o Checkout</button>
+      <a id="carr-whats-btn" href="#" target="_blank" class="btn btn-whats">💬 Finalizar pelo WhatsApp</a>
+      <button class="btn btn-dark" style="justify-content:center;font-size:12px">💳 Ir para o Checkout</button>
     </div>
   </div>
 </div>
 
 <!-- WHATSAPP FLUTUANTE -->
-<a href="https://wa.me/5511999999999" target="_blank" class="whats-float" title="Falar no WhatsApp" rel="noopener noreferrer"><i data-lucide="message-circle"></i></a>
+<a href="https://wa.me/5511999999999" target="_blank" class="whats-float" title="Falar no WhatsApp">💬</a>
 
 <script>
 (function () {
@@ -1853,20 +1732,6 @@ function initWhatsAppLinks() {
   });
 }
 
-function initFadeIn() {
-  const els = document.querySelectorAll('.step-card, .dep-card, .ambiente-card, .cor-item, .diff-icon');
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); }
-    });
-  }, { threshold: 0.1 });
-  els.forEach((el, i) => {
-    el.classList.add('fade-in');
-    el.style.transitionDelay = `${(i % 4) * 80}ms`;
-    observer.observe(el);
-  });
-}
-
 loadCart();
 initEventDelegation();
 initWhatsAppLinks();
@@ -1874,9 +1739,6 @@ renderEscolhas('Cozinha');
 renderModulos('Cozinha', 'Conjunto Inferior');
 calcPrice();
 updateCartUI();
-initFadeIn();
-
-if (typeof lucide !== 'undefined') lucide.createIcons();
 
 // Expõe para os onclick estáticos no HTML
 window.goStep               = goStep;
