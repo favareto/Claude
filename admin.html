@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planejado Popular — Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Montserrat', sans-serif; background: #0F1117; color: #E2E8F0; }
+    a { text-decoration: none; color: inherit; }
+    button { cursor: pointer; font-family: inherit; border: none; }
+    input, textarea, select { font-family: inherit; }
+
+    .app { display: flex; min-height: 100vh; }
+
+    /* ── SIDEBAR ── */
+    .sidebar { width: 240px; background: #161820; border-right: 1px solid rgba(255,255,255,0.06); padding: 20px 0; overflow-y: auto; }
+    .sidebar-logo { font-size: 18px; font-weight: 900; color: white; padding: 0 20px 24px; letter-spacing: -0.5px; }
+    .sidebar-logo span { color: #F26A00; }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 0; }
+    .nav-item { padding: 12px 20px; font-size: 13px; font-weight: 600; color: #718096; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; }
+    .nav-item:hover { background: rgba(255,255,255,0.04); color: #E2E8F0; }
+    .nav-item.active { background: rgba(242,106,0,0.1); border-left-color: #F26A00; color: #F26A00; }
+
+    /* ── MAIN ── */
+    .main { flex: 1; display: flex; flex-direction: column; }
+    .topbar { background: #161820; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 16px 28px; display: flex; justify-content: space-between; align-items: center; }
+    .topbar-title { font-size: 16px; font-weight: 700; }
+    .topbar-user { font-size: 13px; color: #718096; }
+
+    .content { flex: 1; padding: 28px; overflow-y: auto; }
+    .section { display: none; }
+    .section.active { display: block; }
+
+    /* ── CARDS ── */
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+    .metric-card { background: #1E2130; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; }
+    .metric-label { font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .metric-value { font-size: 32px; font-weight: 900; color: #F26A00; }
+    .metric-sub { font-size: 11px; color: #718096; margin-top: 8px; }
+
+    /* ── TABLES ── */
+    .table-container { background: #1E2130; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    thead { background: rgba(255,255,255,0.03); }
+    th { padding: 12px 16px; font-size: 11px; font-weight: 700; text-transform: uppercase; text-align: left; color: #718096; letter-spacing: 0.5px; }
+    td { padding: 12px 16px; font-size: 13px; border-top: 1px solid rgba(255,255,255,0.03); }
+    tr:hover { background: rgba(255,255,255,0.02); }
+    .btn-sm { padding: 6px 12px; font-size: 11px; font-weight: 600; background: #F26A00; color: white; border-radius: 6px; transition: background 0.2s; }
+    .btn-sm:hover { background: #D45A00; }
+
+    /* ── FORMS ── */
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+    .form-input { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #E2E8F0; transition: border-color 0.2s; }
+    .form-input:focus { outline: none; border-color: #F26A00; }
+
+    /* ── MODAL ── */
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .modal.show { display: flex; }
+    .modal-box { background: #1E2130; border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 28px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
+    .modal-title { font-size: 18px; font-weight: 800; margin-bottom: 20px; }
+    .modal-close { position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.1); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; }
+    .modal-actions { display: flex; gap: 12px; margin-top: 24px; }
+    .btn-primary { flex: 1; background: #F26A00; color: white; padding: 12px 20px; border-radius: 8px; font-weight: 700; transition: background 0.2s; }
+    .btn-primary:hover { background: #D45A00; }
+    .btn-secondary { flex: 1; background: rgba(255,255,255,0.1); color: #E2E8F0; padding: 12px 20px; border-radius: 8px; font-weight: 700; transition: background 0.2s; }
+    .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+
+    /* ── LOGIN ── */
+    .login-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+    .login-box { background: #1E2130; border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 40px; max-width: 380px; text-align: center; }
+    .login-title { font-size: 24px; font-weight: 900; margin-bottom: 12px; }
+    .login-sub { font-size: 13px; color: #718096; margin-bottom: 28px; }
+    .login-input { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px 16px; font-size: 14px; color: #E2E8F0; margin-bottom: 16px; }
+    .login-input:focus { outline: none; border-color: #F26A00; }
+    .login-btn { width: 100%; background: #F26A00; color: white; padding: 12px; border-radius: 8px; font-weight: 700; font-size: 14px; transition: background 0.2s; }
+    .login-btn:hover { background: #D45A00; }
+    .login-error { color: #FF6B6B; font-size: 12px; margin-top: 12px; }
+
+    @media (max-width: 1024px) { .sidebar { width: 200px; } }
+    @media (max-width: 768px) { .sidebar { width: 180px; } .metrics { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN MODAL -->
+<div class="login-modal" id="loginModal">
+  <div class="login-box">
+    <div class="login-title">🔐 Lana Admin</div>
+    <div class="login-sub">Painel de Gestão — Planejado Popular</div>
+    <input type="password" class="login-input" id="passInput" placeholder="Senha de acesso" onkeydown="if(event.key==='Enter')adminLogin()">
+    <button class="login-btn" onclick="adminLogin()">Acessar</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app" id="appArea" style="display:none;">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-logo"><span>lana</span> admin</div>
+    <div class="sidebar-nav">
+      <div class="nav-item active" onclick="goSection('dashboard')">📊 Dashboard</div>
+      <div class="nav-item" onclick="goSection('produtos')">📦 Produtos</div>
+      <div class="nav-item" onclick="goSection('leads')">👥 Leads</div>
+      <div class="nav-item" onclick="goSection('pedidos')">🛒 Pedidos</div>
+      <div class="nav-item" onclick="goSection('clientes')">💳 Clientes</div>
+      <div class="nav-item" onclick="goSection('financeiro')">💰 Financeiro</div>
+      <div style="margin-top:28px;padding:0 20px;"><button style="width:100%;padding:10px;background:rgba(255,255,255,0.1);border-radius:8px;font-size:12px;font-weight:600;" onclick="adminLogout()">Sair</button></div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="sectionTitle">📊 Dashboard</div>
+      <div class="topbar-user">Conectado como Admin</div>
+    </div>
+
+    <div class="content">
+      <!-- DASHBOARD -->
+      <div class="section active" id="s-dashboard">
+        <div class="metrics">
+          <div class="metric-card"><div class="metric-label">Total de Leads</div><div class="metric-value" id="metLeads">0</div><div class="metric-sub">Neste mês</div></div>
+          <div class="metric-card"><div class="metric-label">Pedidos Novos</div><div class="metric-value" id="metPedidos">0</div><div class="metric-sub">Aguardando atendimento</div></div>
+          <div class="metric-card"><div class="metric-label">Receita Total</div><div class="metric-value" id="metReceita">R$ 0</div><div class="metric-sub">Pedidos confirmados</div></div>
+          <div class="metric-card"><div class="metric-label">Clientes Únicos</div><div class="metric-value" id="metClientes">0</div><div class="metric-sub">De leads e pedidos</div></div>
+        </div>
+
+        <h3 style="margin:24px 0 12px;font-size:14px;font-weight:700;">Últimos Leads</h3>
+        <div class="table-container">
+          <table><thead><tr><th>Nome</th><th>Telefone</th><th>Email</th><th>Data</th><th>Status</th></tr></thead>
+          <tbody id="tblLeads"></tbody></table>
+        </div>
+      </div>
+
+      <!-- PRODUTOS -->
+      <div class="section" id="s-produtos">
+        <div style="margin-bottom:20px;">
+          <button class="btn-primary" style="width:auto;padding:10px 16px;" onclick="showModalProduto()">+ Novo Módulo</button>
+        </div>
+        <div id="produtosContent"></div>
+      </div>
+
+      <!-- LEADS -->
+      <div class="section" id="s-leads">
+        <div class="table-container">
+          <table><thead><tr><th>Nome</th><th>Telefone</th><th>Email</th><th>Origem</th><th>Data</th><th>Status</th><th></th></tr></thead>
+          <tbody id="tblLeadsAll"></tbody></table>
+        </div>
+      </div>
+
+      <!-- PEDIDOS -->
+      <div class="section" id="s-pedidos">
+        <div class="table-container">
+          <table><thead><tr><th>ID</th><th>Cliente</th><th>Items</th><th>Total</th><th>Data</th><th>Status</th></tr></thead>
+          <tbody id="tblPedidos"></tbody></table>
+        </div>
+      </div>
+
+      <!-- CLIENTES -->
+      <div class="section" id="s-clientes">
+        <div class="table-container">
+          <table><thead><tr><th>Nome</th><th>Telefone</th><th>Email</th><th>Leads</th><th>Pedidos</th></tr></thead>
+          <tbody id="tblClientes"></tbody></table>
+        </div>
+      </div>
+
+      <!-- FINANCEIRO -->
+      <div class="section" id="s-financeiro">
+        <div class="metrics">
+          <div class="metric-card"><div class="metric-label">Receita Bruta</div><div class="metric-value" id="finTotal">R$ 0</div></div>
+          <div class="metric-card"><div class="metric-label">Pedidos Confirmados</div><div class="metric-value" id="finCount">0</div></div>
+          <div class="metric-card"><div class="metric-label">Ticket Médio</div><div class="metric-value" id="finMedio">R$ 0</div></div>
+          <div class="metric-card"><div class="metric-label">Módulos Vendidos</div><div class="metric-value" id="finModulos">0</div></div>
+        </div>
+        <h3 style="margin:24px 0 12px;font-size:14px;font-weight:700;">Top Módulos</h3>
+        <div class="table-container">
+          <table><thead><tr><th>Módulo</th><th>Vendas</th><th>Receita</th></tr></thead>
+          <tbody id="tblTopMod"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="modal" id="modalProduto">
+  <div class="modal-box" style="position:relative;">
+    <button class="modal-close" onclick="closeModal('modalProduto')">×</button>
+    <div class="modal-title">Editar Módulo</div>
+    <div class="form-group">
+      <div class="form-label">Nome</div>
+      <input type="text" class="form-input" id="formNome" placeholder="Nome do módulo">
+    </div>
+    <div class="form-group">
+      <div class="form-label">Preço Base (R$)</div>
+      <input type="number" class="form-input" id="formPreco" placeholder="0.00">
+    </div>
+    <div class="form-group">
+      <div class="form-label">Ambiente</div>
+      <select class="form-input" id="formAmb">
+        <option>Cozinha</option><option>Quarto</option><option>Banheiro</option>
+        <option>Sala</option><option>Escritório</option><option>Outros</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <div class="form-label">Tipo (ESCOLHA)</div>
+      <input type="text" class="form-input" id="formEscolha" placeholder="Ex: Conjunto Completo">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-primary" onclick="saveProduto()">Salvar</button>
+      <button class="btn-secondary" onclick="closeModal('modalProduto')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const ADMIN_PASS = 'lana2026';
+let autenticado = false;
+
+function adminLogin() {
+  const pass = document.getElementById('passInput').value;
+  if (pass === ADMIN_PASS) {
+    autenticado = true;
+    localStorage.setItem('admin_auth', '1');
+    document.getElementById('loginModal').style.display = 'none';
+    document.getElementById('appArea').style.display = 'flex';
+    carregarDados();
+  } else {
+    document.getElementById('loginError').textContent = 'Senha incorreta';
+  }
+}
+
+function adminLogout() {
+  autenticado = false;
+  localStorage.removeItem('admin_auth');
+  location.reload();
+}
+
+function goSection(sec) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('s-' + sec).classList.add('active');
+  event.target.classList.add('active');
+  const titles = {dashboard:'📊 Dashboard',produtos:'📦 Produtos',leads:'👥 Leads',pedidos:'🛒 Pedidos',clientes:'💳 Clientes',financeiro:'💰 Financeiro'};
+  document.getElementById('sectionTitle').textContent = titles[sec] || sec;
+  if (sec === 'dashboard') renderDashboard();
+  else if (sec === 'produtos') renderProdutos();
+  else if (sec === 'leads') renderLeads();
+  else if (sec === 'pedidos') renderPedidos();
+  else if (sec === 'clientes') renderClientes();
+  else if (sec === 'financeiro') renderFinanceiro();
+}
+
+function carregarDados() {
+  renderDashboard();
+}
+
+function renderDashboard() {
+  const leads = JSON.parse(localStorage.getItem('pp_leads') || '[]');
+  const pedidos = JSON.parse(localStorage.getItem('pp_pedidos') || '[]');
+
+  document.getElementById('metLeads').textContent = leads.length;
+  document.getElementById('metPedidos').textContent = pedidos.filter(p => p.status === 'novo').length;
+  document.getElementById('metReceita').textContent = 'R$ ' + pedidos.reduce((s,p) => s+p.total, 0).toLocaleString('pt-BR');
+
+  const clientes = new Set([...leads.map(l => l.nome), ...pedidos.map(p => p.cliente)]);
+  document.getElementById('metClientes').textContent = clientes.size;
+
+  let html = '';
+  leads.slice(-5).forEach(l => {
+    html += `<tr><td>${l.nome}</td><td>${l.telefone}</td><td>${l.email || '—'}</td><td>${new Date(l.data).toLocaleDateString('pt-BR')}</td><td><span style="background:${l.status==='novo'?'#F26A00':'#4CAF50'};color:white;padding:4px 8px;border-radius:4px;font-size:11px;font-weight:600;">${l.status}</span></td></tr>`;
+  });
+  document.getElementById('tblLeads').innerHTML = html;
+}
+
+function renderLeads() {
+  const leads = JSON.parse(localStorage.getItem('pp_leads') || '[]');
+  let html = '';
+  leads.forEach(l => {
+    const statusOpt = `<select style="background:#1E2130;color:#E2E8F0;border:1px solid rgba(255,255,255,0.08);padding:6px;border-radius:4px;font-size:12px;" onchange="updateLeadStatus(${l.id},this.value)">
+      <option ${l.status==='novo'?'selected':''}>novo</option><option ${l.status==='contatado'?'selected':''}>contatado</option>
+      <option ${l.status==='convertido'?'selected':''}>convertido</option></select>`;
+    html += `<tr><td>${l.nome}</td><td>${l.telefone}</td><td>${l.email || '—'}</td><td>${l.origem}</td><td>${new Date(l.data).toLocaleDateString('pt-BR')}</td><td>${statusOpt}</td><td><button class="btn-sm" onclick="deleteLead(${l.id})">Del</button></td></tr>`;
+  });
+  document.getElementById('tblLeadsAll').innerHTML = html;
+}
+
+function renderPedidos() {
+  const pedidos = JSON.parse(localStorage.getItem('pp_pedidos') || '[]');
+  let html = '';
+  pedidos.forEach(p => {
+    const itemsStr = p.items.map(i => i.modulo).join(', ');
+    html += `<tr><td>#${p.id}</td><td>${p.cliente || '—'}</td><td>${itemsStr.substring(0,30)}...</td><td>R$ ${p.total.toLocaleString('pt-BR')}</td><td>${new Date(p.data).toLocaleDateString('pt-BR')}</td><td><select style="background:#1E2130;color:#E2E8F0;border:1px solid rgba(255,255,255,0.08);padding:6px;border-radius:4px;font-size:12px;" onchange="updatePedidoStatus(${p.id},this.value)">
+      <option ${p.status==='novo'?'selected':''}>novo</option><option ${p.status==='em_producao'?'selected':''}>em_producao</option>
+      <option ${p.status==='entregue'?'selected':''}>entregue</option><option ${p.status==='cancelado'?'selected':''}>cancelado</option></select></td></tr>`;
+  });
+  document.getElementById('tblPedidos').innerHTML = html;
+}
+
+function renderClientes() {
+  const leads = JSON.parse(localStorage.getItem('pp_leads') || '[]');
+  const pedidos = JSON.parse(localStorage.getItem('pp_pedidos') || '[]');
+  const clientes = {};
+  leads.forEach(l => { if (!clientes[l.nome]) clientes[l.nome] = {tel:l.telefone,email:l.email,leads:0,pedidos:0}; clientes[l.nome].leads++; });
+  pedidos.forEach(p => { if (p.cliente && clientes[p.cliente]) clientes[p.cliente].pedidos++; });
+
+  let html = '';
+  Object.entries(clientes).forEach(([nome, data]) => {
+    html += `<tr><td>${nome}</td><td>${data.tel}</td><td>${data.email || '—'}</td><td>${data.leads}</td><td>${data.pedidos}</td></tr>`;
+  });
+  document.getElementById('tblClientes').innerHTML = html;
+}
+
+function renderFinanceiro() {
+  const pedidos = JSON.parse(localStorage.getItem('pp_pedidos') || '[]');
+  const total = pedidos.reduce((s,p) => s+p.total, 0);
+  const count = pedidos.length;
+
+  document.getElementById('finTotal').textContent = 'R$ ' + total.toLocaleString('pt-BR');
+  document.getElementById('finCount').textContent = count;
+  document.getElementById('finMedio').textContent = 'R$ ' + (count > 0 ? Math.round(total/count).toLocaleString('pt-BR') : '0');
+
+  let totalMod = 0;
+  const modVendas = {};
+  pedidos.forEach(p => {
+    p.items.forEach(i => {
+      totalMod++;
+      if (!modVendas[i.modulo]) modVendas[i.modulo] = {qty:0,total:0};
+      modVendas[i.modulo].qty++;
+      modVendas[i.modulo].total += i.price;
+    });
+  });
+  document.getElementById('finModulos').textContent = totalMod;
+
+  let html = '';
+  Object.entries(modVendas).sort((a,b) => b[1].qty - a[1].qty).slice(0,10).forEach(([mod, data]) => {
+    html += `<tr><td>${mod}</td><td>${data.qty}</td><td>R$ ${data.total.toLocaleString('pt-BR')}</td></tr>`;
+  });
+  document.getElementById('tblTopMod').innerHTML = html;
+}
+
+function renderProdutos() {
+  document.getElementById('produtosContent').innerHTML = '<p style="padding:20px;text-align:center;color:#718096;">Editor de produtos em desenvolvimento</p>';
+}
+
+function updateLeadStatus(id, status) {
+  const leads = JSON.parse(localStorage.getItem('pp_leads') || '[]');
+  const lead = leads.find(l => l.id === id);
+  if (lead) { lead.status = status; localStorage.setItem('pp_leads', JSON.stringify(leads)); }
+}
+
+function updatePedidoStatus(id, status) {
+  const pedidos = JSON.parse(localStorage.getItem('pp_pedidos') || '[]');
+  const ped = pedidos.find(p => p.id === id);
+  if (ped) { ped.status = status; localStorage.setItem('pp_pedidos', JSON.stringify(pedidos)); }
+}
+
+function deleteLead(id) {
+  if (confirm('Deletar este lead?')) {
+    const leads = JSON.parse(localStorage.getItem('pp_leads') || '[]');
+    const filtered = leads.filter(l => l.id !== id);
+    localStorage.setItem('pp_leads', JSON.stringify(filtered));
+    renderLeads();
+  }
+}
+
+function showModalProduto() { document.getElementById('modalProduto').classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+function saveProduto() { closeModal('modalProduto'); alert('Salvando...'); }
+
+// Check auth on load
+if (!localStorage.getItem('admin_auth')) {
+  document.getElementById('appArea').style.display = 'none';
+  document.getElementById('loginModal').style.display = 'flex';
+} else {
+  autenticado = true;
+  document.getElementById('loginModal').style.display = 'none';
+  document.getElementById('appArea').style.display = 'flex';
+  carregarDados();
+}
+</script>
+</body>
+</html>
