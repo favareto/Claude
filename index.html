@@ -590,14 +590,132 @@ footer { background: var(--carvao); color: white; }
 .pay-tag { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 4px; font-size: 9px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.4); }
 
 /* ═══════════════════════════════════════════
-   WHATSAPP FLUTUANTE
+   WHATSAPP FLUTUANTE — removido, substituído pela Lana
 ═══════════════════════════════════════════ */
-.whats-float {
-  position: fixed; bottom: 28px; right: 28px; z-index: 200;
-  width: 58px; height: 58px; border-radius: 50%;
-  background: #25D366; color: white;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 28px; box-shadow: 0 4px 20px rgba(37,211,102,0.5);
+/* .whats-float removido */
+
+/* ═══════════════════════════════════════════
+   LANA — CHAT WIDGET
+═══════════════════════════════════════════ */
+.lana-btn {
+  position: fixed; bottom: 28px; left: 28px; z-index: 300;
+  cursor: pointer; border: none; background: none; padding: 0;
+  animation: bounce-in 0.6s 2s both;
+}
+.lana-btn-inner {
+  width: 62px; height: 62px; border-radius: 50%; overflow: hidden;
+  box-shadow: 0 4px 20px rgba(242,106,0,0.55);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+.lana-btn:hover .lana-btn-inner { transform: scale(1.08); box-shadow: 0 6px 28px rgba(242,106,0,0.7); }
+.lana-badge {
+  position: absolute; top: -2px; right: -2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #F26A00; border: 2.5px solid white;
+  display: none;
+}
+.lana-badge.show { display: block; animation: lana-pulse 2s infinite; }
+@keyframes lana-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.25)} }
+
+/* Painel */
+.lana-panel {
+  position: fixed; bottom: 104px; left: 28px;
+  width: 340px; background: white; border-radius: 20px;
+  box-shadow: 0 16px 56px rgba(0,0,0,0.22);
+  z-index: 300; display: flex; flex-direction: column;
+  transform: translateY(16px) scale(0.96);
+  opacity: 0; pointer-events: none;
+  transition: transform 0.28s ease, opacity 0.28s ease;
+  overflow: hidden; max-height: 510px;
+}
+.lana-panel.open { transform: translateY(0) scale(1); opacity: 1; pointer-events: all; }
+
+/* Header */
+.lana-header {
+  background: var(--carvao); padding: 14px 18px;
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.lana-hd-avatar { width: 42px; height: 42px; border-radius: 50%; overflow: hidden; flex-shrink: 0; }
+.lana-hd-name { font-size: 14px; font-weight: 800; color: white; letter-spacing: 0.3px; }
+.lana-hd-status {
+  font-size: 11px; color: rgba(255,255,255,0.5);
+  display: flex; align-items: center; gap: 5px; margin-top: 2px;
+}
+.lana-hd-status::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: #4CAF50; display: inline-block; flex-shrink: 0;
+}
+.lana-hd-close {
+  margin-left: auto; background: rgba(255,255,255,0.1); border: none;
+  color: white; width: 28px; height: 28px; border-radius: 50%;
+  font-size: 16px; cursor: pointer; display: flex; align-items: center;
+  justify-content: center; transition: background 0.22s; flex-shrink: 0;
+}
+.lana-hd-close:hover { background: var(--laranja); }
+
+/* Mensagens */
+.lana-msgs {
+  flex: 1; overflow-y: auto; padding: 14px 14px 8px;
+  display: flex; flex-direction: column; gap: 8px;
+  background: #F7F4F0;
+}
+.lana-msg { display: flex; gap: 7px; align-items: flex-end; }
+.lana-msg.user { flex-direction: row-reverse; }
+.lana-msg-av { width: 26px; height: 26px; border-radius: 50%; overflow: hidden; flex-shrink: 0; }
+.lana-bubble {
+  max-width: 75%; padding: 9px 13px; border-radius: 16px;
+  font-size: 13px; line-height: 1.55;
+}
+.lana-msg.bot .lana-bubble {
+  background: white; color: var(--carvao);
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.lana-msg.user .lana-bubble {
+  background: var(--laranja); color: white;
+  border-bottom-right-radius: 4px;
+}
+
+/* Typing dots */
+.lana-typing .lana-bubble { display: flex; gap: 5px; padding: 12px 14px; }
+.lana-dot { width: 7px; height: 7px; border-radius: 50%; background: #bbb; animation: tdot 1.2s infinite; }
+.lana-dot:nth-child(2) { animation-delay: 0.2s; }
+.lana-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes tdot { 0%,60%,100%{transform:translateY(0);opacity:.4} 30%{transform:translateY(-5px);opacity:1} }
+
+/* Opções rápidas */
+.lana-opts { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 14px 10px; background: #F7F4F0; flex-shrink: 0; }
+.lana-opt {
+  background: white; border: 1.5px solid #E0DAD4;
+  border-radius: 20px; padding: 6px 13px;
+  font-size: 12px; font-weight: 600; color: var(--carvao);
+  cursor: pointer; transition: all 0.2s; font-family: inherit;
+}
+.lana-opt:hover { background: var(--laranja); border-color: var(--laranja); color: white; }
+
+/* Input */
+.lana-input-row {
+  padding: 10px 14px; border-top: 1px solid #EEE;
+  display: flex; gap: 8px; background: white; flex-shrink: 0;
+}
+.lana-inp {
+  flex: 1; border: 1.5px solid #E4E4E4; border-radius: 22px;
+  padding: 8px 15px; font-size: 13px; font-family: inherit;
+  outline: none; transition: border-color 0.22s;
+}
+.lana-inp:focus { border-color: var(--laranja); }
+.lana-send-btn {
+  width: 36px; height: 36px; background: var(--laranja); border: none;
+  border-radius: 50%; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: background 0.22s; flex-shrink: 0;
+}
+.lana-send-btn:hover { background: #D45A00; }
+.lana-send-btn svg { width: 15px; height: 15px; stroke: white; stroke-width: 2.2; }
+
+@media (max-width: 768px) {
+  .lana-panel { width: calc(100vw - 24px); left: 12px; bottom: 90px; max-height: 58vh; }
+  .lana-btn   { bottom: 16px; left: 16px; }
   transition: transform var(--trans), box-shadow var(--trans);
   animation: bounce-in 0.6s 1s both;
 }
@@ -1341,8 +1459,7 @@ footer { background: var(--carvao); color: white; }
   </div>
 </div>
 
-<!-- WHATSAPP FLUTUANTE -->
-<a href="https://wa.me/5511999999999" target="_blank" class="whats-float" title="Falar no WhatsApp">💬</a>
+<!-- LANA — botão e painel injetados pelo JS -->
 
 <script>
 // ═══════════════════════════════════════════
@@ -1673,6 +1790,272 @@ function selectAmbiente(amb) {
 renderEscolhas('Cozinha');
 renderModulos('Cozinha', 'Conjunto Inferior');
 calcPrice();
+</script>
+
+<!-- ═══════════════════════════════════════════
+     LANA — Assistente Virtual
+════════════════════════════════════════════ -->
+<script>
+(function(){
+'use strict';
+
+/* ── Avatar SVG (inline, sem dependência externa) ── */
+const AVATAR = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="50" cy="50" r="50" fill="#F5B8A0"/>
+  <ellipse cx="50" cy="40" rx="29" ry="31" fill="#2C1505"/>
+  <rect x="42" y="72" width="16" height="14" rx="6" fill="#F4C49E"/>
+  <ellipse cx="50" cy="98" rx="36" ry="22" fill="#F26A00"/>
+  <ellipse cx="50" cy="51" rx="22" ry="24" fill="#F4C49E"/>
+  <path d="M21 45 Q21 13 50 10 Q79 13 79 45 Q73 24 50 22 Q27 24 21 45Z" fill="#2C1505"/>
+  <path d="M21 45 Q17 64 19 80 L26 68 Q24 56 24 48Z" fill="#2C1505"/>
+  <path d="M79 45 Q83 64 81 80 L74 68 Q76 56 76 48Z" fill="#2C1505"/>
+  <ellipse cx="40" cy="50" rx="5" ry="5.5" fill="white"/>
+  <ellipse cx="60" cy="50" rx="5" ry="5.5" fill="white"/>
+  <ellipse cx="40" cy="51" rx="3.2" ry="3.5" fill="#1A0800"/>
+  <ellipse cx="60" cy="51" rx="3.2" ry="3.5" fill="#1A0800"/>
+  <circle cx="41.5" cy="49.5" r="1.3" fill="white"/>
+  <circle cx="61.5" cy="49.5" r="1.3" fill="white"/>
+  <path d="M34 43 Q40 40.5 46 43" stroke="#2C1505" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+  <path d="M54 43 Q60 40.5 66 43" stroke="#2C1505" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+  <ellipse cx="50" cy="59" rx="2.5" ry="1.5" fill="#DDA880" opacity="0.6"/>
+  <path d="M41 65 Q50 73 59 65" stroke="#C07050" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <ellipse cx="32" cy="59" rx="7" ry="4.5" fill="#EF7050" opacity="0.35"/>
+  <ellipse cx="68" cy="59" rx="7" ry="4.5" fill="#EF7050" opacity="0.35"/>
+  <circle cx="24" cy="54" r="2.5" fill="#FFAA2C"/>
+  <circle cx="76" cy="54" r="2.5" fill="#FFAA2C"/>
+</svg>`;
+
+/* ── Estado ── */
+const st = { step:'idle', nome:'', telefone:'', email:'', greeted:false };
+
+/* ── Salvar lead ── */
+function saveLead() {
+  try {
+    const leads = JSON.parse(localStorage.getItem('pp_leads') || '[]');
+    leads.push({ id:Date.now(), nome:st.nome, telefone:st.telefone,
+      email:st.email, data:new Date().toISOString(), status:'novo', origem:'lana' });
+    localStorage.setItem('pp_leads', JSON.stringify(leads));
+  } catch(e) {}
+}
+
+/* ── Salvar intenção de pedido ── */
+function savePedido(items, total, origem) {
+  try {
+    const ped = JSON.parse(localStorage.getItem('pp_pedidos') || '[]');
+    const leads = JSON.parse(localStorage.getItem('pp_leads') || '[]');
+    const cliente = leads.length ? leads[leads.length-1].nome : '';
+    ped.push({ id:Date.now(), items, total, origem, cliente,
+      data:new Date().toISOString(), status:'novo' });
+    localStorage.setItem('pp_pedidos', JSON.stringify(ped));
+  } catch(e) {}
+}
+
+/* ── Construir DOM do widget ── */
+function build() {
+  /* Painel */
+  const panel = document.createElement('div');
+  panel.id = 'lanaPanel'; panel.className = 'lana-panel';
+  panel.innerHTML = `
+    <div class="lana-header">
+      <div class="lana-hd-avatar">${AVATAR}</div>
+      <div><div class="lana-hd-name">Lana</div><div class="lana-hd-status">Online agora</div></div>
+      <button class="lana-hd-close" onclick="lanaClose()">×</button>
+    </div>
+    <div class="lana-msgs" id="lanaMsgs"></div>
+    <div class="lana-opts" id="lanaOpts" style="display:none"></div>
+    <div class="lana-input-row">
+      <input id="lanaInp" class="lana-inp" placeholder="Digite aqui..."
+        onkeydown="if(event.key==='Enter')lanaEnviar()">
+      <button class="lana-send-btn" onclick="lanaEnviar()">
+        <svg viewBox="0 0 24 24" fill="none"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>`;
+  document.body.appendChild(panel);
+
+  /* Botão */
+  const btn = document.createElement('button');
+  btn.id = 'lanaBtn'; btn.className = 'lana-btn';
+  btn.setAttribute('aria-label','Falar com a Lana');
+  btn.onclick = lanaToggle;
+  btn.innerHTML = `<div class="lana-btn-inner">${AVATAR}</div>
+    <div class="lana-badge" id="lanaBadge"></div>`;
+  document.body.appendChild(btn);
+}
+
+/* ── Helpers de mensagens ── */
+function addMsg(texto, de) {
+  const msgs = document.getElementById('lanaMsgs');
+  const el = document.createElement('div');
+  el.className = 'lana-msg ' + de;
+  el.innerHTML = de === 'bot'
+    ? `<div class="lana-msg-av">${AVATAR}</div><div class="lana-bubble">${texto}</div>`
+    : `<div class="lana-bubble">${texto}</div>`;
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function showTyping() {
+  const msgs = document.getElementById('lanaMsgs');
+  const el = document.createElement('div');
+  el.id = 'lanaTyp'; el.className = 'lana-msg bot lana-typing';
+  el.innerHTML = `<div class="lana-msg-av">${AVATAR}</div>
+    <div class="lana-bubble"><div class="lana-dot"></div><div class="lana-dot"></div><div class="lana-dot"></div></div>`;
+  msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
+}
+
+function hideTyping() { const e = document.getElementById('lanaTyp'); if(e) e.remove(); }
+
+function lanaFala(texto, delay, depois) {
+  showTyping();
+  setTimeout(() => { hideTyping(); addMsg(texto,'bot'); if(depois) depois(); }, delay || 900);
+}
+
+/* ── Opções rápidas ── */
+function mostrarOpcoes(opts) {
+  const el = document.getElementById('lanaOpts');
+  el.style.display = 'flex';
+  el.innerHTML = opts.map(o =>
+    `<button class="lana-opt" onclick="lanaOpcao('${o.replace(/'/g,"\\'")}')">
+      ${o}</button>`).join('');
+}
+
+function esconderOpcoes() {
+  const el = document.getElementById('lanaOpts');
+  if(el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+
+/* ── Fluxo de conversa ── */
+function processar(texto) {
+  switch(st.step) {
+    case 'nome':
+      st.nome = texto;
+      st.step = 'telefone';
+      lanaFala(`Prazer, <strong>${st.nome}</strong>! 😊 Para eu te mandar propostas personalizadas, qual é o seu WhatsApp?`, 1000);
+      break;
+    case 'telefone':
+      st.telefone = texto;
+      st.step = 'email';
+      lanaFala('Anotei! E seu e-mail? _(pode digitar <b>pular</b> se preferir)_', 900);
+      break;
+    case 'email':
+      st.email = texto.toLowerCase() === 'pular' ? '' : texto;
+      st.step = 'menu';
+      saveLead();
+      lanaFala(`Perfeito, ${st.nome}! Já registrei seus dados 🎉<br>Agora me diz — o que você está procurando?`, 1100, () => {
+        mostrarOpcoes(['🍳 Cozinha','🛏️ Quarto','🚿 Banheiro','🛋️ Sala','💻 Escritório','✨ Outro']);
+      });
+      break;
+    case 'menu':
+      responderLivre(texto);
+      break;
+  }
+}
+
+function responderLivre(texto) {
+  const t = texto.toLowerCase();
+  if (/cozinha|quarto|banheiro|sala|escrit/.test(t)) {
+    lanaFala('Vou te levar direto ao configurador! 👇', 700, () => {
+      document.getElementById('configurador')?.scrollIntoView({behavior:'smooth'});
+      document.getElementById('lanaPanel').classList.remove('open');
+    });
+  } else if (/preço|preco|valor|quanto/.test(t)) {
+    lanaFala('Os preços variam conforme o módulo e as medidas. Use o configurador para ver o valor exato em tempo real! 📐', 1000);
+  } else if (/prazo|entrega|demora/.test(t)) {
+    lanaFala('Nosso prazo é de <strong>10 dias úteis</strong> após o pagamento. Entregamos em toda São Paulo! 🚚', 900);
+  } else if (/frete|gratis/.test(t)) {
+    lanaFala('Frete grátis para pedidos acima de <strong>R$ 800</strong> para toda São Paulo! 🎁', 900);
+  } else {
+    lanaFala('Entendido! Nossa equipe vai entrar em contato em breve 😊 Enquanto isso, que tal montar seu projeto no configurador?', 1000);
+  }
+}
+
+/* ── Controles públicos ── */
+function lanaToggle() {
+  const panel = document.getElementById('lanaPanel');
+  if (panel.classList.contains('open')) { lanaClose(); return; }
+  panel.classList.add('open');
+  document.getElementById('lanaBadge').classList.remove('show');
+  if (!st.greeted) {
+    st.greeted = true;
+    st.step = 'nome';
+    lanaFala('Oi! 👋 Sou a <strong>Lana</strong>, assistente da Planejado Popular.<br>Qual é o seu nome?', 700);
+  }
+}
+
+function lanaClose() {
+  document.getElementById('lanaPanel').classList.remove('open');
+}
+
+function lanaEnviar() {
+  const inp = document.getElementById('lanaInp');
+  const txt = inp.value.trim(); if (!txt) return;
+  inp.value = '';
+  esconderOpcoes();
+  addMsg(txt, 'user');
+  processar(txt);
+}
+
+function lanaOpcao(opt) {
+  esconderOpcoes();
+  addMsg(opt, 'user');
+  const amb = opt.replace(/^.+\s/, ''); // remove emoji
+  lanaFala(`Ótimo! Vou te levar para as opções de ${amb} 👇`, 700, () => {
+    document.getElementById('configurador')?.scrollIntoView({behavior:'smooth'});
+    // selecionar ambiente no configurador
+    document.querySelectorAll('.amb-opt').forEach(b => {
+      if (b.textContent.trim().includes(amb)) b.click();
+    });
+    document.getElementById('lanaPanel').classList.remove('open');
+  });
+}
+
+/* ── Capturar intenção de pedido nos botões existentes ── */
+function hookPedidos() {
+  // Configuraor: "Pedir pelo WhatsApp"
+  const origSend = window.sendWhats;
+  if (origSend) {
+    window.sendWhats = function(e) {
+      if (window.state?.modulo) {
+        const p = window.state.price || window.state.basePrice || 0;
+        savePedido([{ modulo:state.modulo, ambiente:state.ambiente,
+          escolha:state.escolha, medidas:`${state.largura}×${state.altura}×${state.prof}cm`,
+          cor:state.cor, price:p }], p, 'configurador');
+      }
+      origSend.call(this, e);
+    };
+  }
+  // Carrinho: botão WhatsApp
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('#carr-whats-btn')) {
+      const c = window.cart;
+      if (c && c.length) {
+        savePedido(c.map(i=>({...i})),
+          c.reduce((s,i)=>s+i.price,0), 'carrinho');
+      }
+    }
+  });
+}
+
+/* ── Badge de boas-vindas após 8s ── */
+function agendaBadge() {
+  setTimeout(() => {
+    const b = document.getElementById('lanaBadge');
+    if (b && !st.greeted) b.classList.add('show');
+  }, 8000);
+}
+
+/* ── Init ── */
+build();
+hookPedidos();
+agendaBadge();
+
+/* Expor funções chamadas do HTML inline */
+window.lanaClose   = lanaClose;
+window.lanaToggle  = lanaToggle;
+window.lanaEnviar  = lanaEnviar;
+window.lanaOpcao   = lanaOpcao;
+
+}());
 </script>
 </body>
 </html>
