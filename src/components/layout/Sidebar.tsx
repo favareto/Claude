@@ -11,6 +11,7 @@ import {
   CreditCard,
   User,
   LogOut,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@prisma/client";
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/schedule", icon: Calendar, label: "Agenda" },
   { href: "/consultations", icon: ClipboardList, label: "Consultas" },
   { href: "/billing", icon: CreditCard, label: "Financeiro" },
+  { href: "/profile", icon: User, label: "Meu Perfil" },
 ];
 
 export function Sidebar({ user }: SidebarProps) {
@@ -62,6 +64,15 @@ export function Sidebar({ user }: SidebarProps) {
       </nav>
 
       <div className="p-4 border-t border-gray-200 space-y-2">
+        {user.role === "ADMIN" && (
+          <Link
+            href="/admin"
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <Shield className="h-5 w-5" />
+            Painel Admin
+          </Link>
+        )}
         <div className="flex items-center gap-3 px-3 py-2">
           <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
             <User className="h-4 w-4 text-blue-600" />

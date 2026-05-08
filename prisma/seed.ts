@@ -3,12 +3,46 @@ import bcrypt from "bcryptjs";
 
 const db = new PrismaClient();
 
+const DEFAULT_CONTENT = {
+  site_name: "ConsultaOnline",
+  hero_title: "Atendimento online profissional e seguro",
+  hero_subtitle:
+    "Conecte-se com profissionais qualificados por videochamada. Agende, pague e faça sua consulta sem sair de casa.",
+  hero_cta_client: "Sou cliente",
+  hero_cta_professional: "Sou profissional",
+  about_title: "Por que escolher nossa plataforma?",
+  about_text:
+    "Somos uma plataforma dedicada a conectar clientes e profissionais de saúde e bem-estar de forma simples, segura e acessível.",
+  footer_contact: "contato@consultaonline.com.br",
+};
+
 async function main() {
   console.log("Seeding database...");
 
-  const professionalPassword = await bcrypt.hash("senha123", 12);
-  const clientPassword = await bcrypt.hash("senha123", 12);
+  // Conteúdo padrão do site
+  for (const [key, value] of Object.entries(DEFAULT_CONTENT)) {
+    await db.siteContent.upsert({
+      where: { key },
+      update: {},
+      create: { key, value },
+    });
+  }
 
+  // Admin
+  const adminPassword = await bcrypt.hash("admin123", 12);
+  const admin = await db.user.upsert({
+    where: { email: "admin@consultaonline.com" },
+    update: {},
+    create: {
+      name: "Administrador",
+      email: "admin@consultaonline.com",
+      password: adminPassword,
+      role: "ADMIN",
+    },
+  });
+
+  // Profissional
+  const professionalPassword = await bcrypt.hash("senha123", 12);
   const professional = await db.user.upsert({
     where: { email: "profissional@exemplo.com" },
     update: {},
@@ -20,8 +54,9 @@ async function main() {
       professionalProfile: {
         create: {
           specialty: "Psicologia",
-          bio: "Psicóloga clínica com 10 anos de experiência em terapia cognitivo-comportamental.",
+          bio: "Psicóloga clínica com 10 anos de experiência em terapia cognitivo-comportamental. Atendo adultos com ansiedade, depressão e questões de autoconhecimento.",
           sessionPrice: 200,
+          sessionDuration: 50,
           currency: "BRL",
           availabilities: {
             create: [
@@ -37,6 +72,8 @@ async function main() {
     },
   });
 
+  // Cliente
+  const clientPassword = await bcrypt.hash("senha123", 12);
   const client = await db.user.upsert({
     where: { email: "cliente@exemplo.com" },
     update: {},
@@ -49,9 +86,12 @@ async function main() {
     },
   });
 
-  console.log("Seed complete!");
-  console.log(`Professional: ${professional.email} / senha123`);
-  console.log(`Client: ${client.email} / senha123`);
+  console.log("\nSeed completo!");
+  console.log("─────────────────────────────────");
+  console.log(`Admin:         admin@consultaonline.com  / admin123`);
+  console.log(`Profissional:  profissional@exemplo.com  / senha123`);
+  console.log(`Cliente:       cliente@exemplo.com       / senha123`);
+  console.log("─────────────────────────────────");
 }
 
 main()
