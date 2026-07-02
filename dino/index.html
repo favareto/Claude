@@ -54,14 +54,17 @@
     margin-bottom: 6px;
   }
   .dino-wrap {
-    width: 300px;
-    height: 165px;
-    margin: 6px auto 4px;
+    width: 230px;
+    height: 230px;
+    margin: 20px auto 4px;
     position: relative;
     transition: transform 0.4s ease;
+    cursor: pointer;
+    transform-origin: top center;
   }
   .dino-wrap.bounce { animation: bounce 0.6s ease; }
   .dino-wrap.levelup { animation: spinPop 0.9s ease; }
+  .dino-wrap.squish { animation: squish 0.5s ease; }
   @keyframes bounce {
     0% { transform: translateY(0) scale(var(--s,1)); }
     30% { transform: translateY(-18px) scale(var(--s,1)); }
@@ -75,15 +78,50 @@
     70% { transform: scale(calc(var(--s,1) * 1.25)) rotate(8deg); }
     100% { transform: scale(var(--s,1)) rotate(0deg); }
   }
+  @keyframes squish {
+    0% { transform: scale(var(--s,1)) scale(1, 1); }
+    30% { transform: scale(var(--s,1)) scale(1.15, 0.85); }
+    55% { transform: scale(var(--s,1)) scale(0.92, 1.1); }
+    80% { transform: scale(var(--s,1)) scale(1.05, 0.96); }
+    100% { transform: scale(var(--s,1)) scale(1, 1); }
+  }
   .hat {
     position: absolute;
-    top: -2px;
-    right: 18px;
+    top: -14px;
+    left: 50%;
+    margin-left: -17px;
     font-size: 34px;
     display: none;
-    transform: rotate(15deg);
+    transform: rotate(10deg);
   }
   .dino-wrap.max-level .hat { display: block; }
+
+  .pet-actions { display: flex; justify-content: center; gap: 10px; margin: 10px 0 6px; flex-wrap: wrap; }
+  .pet-btn {
+    background: var(--azul-claro);
+    border: 2px solid var(--azul);
+    color: var(--azul-escuro);
+    font-weight: bold;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .pet-btn:active { background: var(--azul); color: white; }
+  .pet-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .heart-particle {
+    position: fixed;
+    font-size: 20px;
+    pointer-events: none;
+    animation: floatUp 1.1s ease-out forwards;
+    z-index: 999;
+  }
+  @keyframes floatUp {
+    0% { transform: translateY(0) scale(0.6); opacity: 1; }
+    100% { transform: translateY(-70px) scale(1.2); opacity: 0; }
+  }
 
   .speech-bubble {
     background: var(--azul-claro);
@@ -304,101 +342,77 @@
     <div class="level-badge" id="levelBadge">Nível 1: Bebê</div>
     <div class="dino-wrap" id="dinoWrap">
       <span class="hat" id="hat">🎉</span>
-      <svg id="dinoSvg" viewBox="0 0 380 200" width="100%" height="100%">
+      <svg id="dinoSvg" viewBox="0 0 240 240" width="100%" height="100%">
         <defs>
-          <radialGradient id="bodyGrad" cx="38%" cy="22%" r="90%">
+          <radialGradient id="bodyGrad" cx="35%" cy="25%" r="85%">
             <stop offset="0%" stop-color="#ffffff"/>
             <stop offset="60%" stop-color="#eef5fb"/>
             <stop offset="100%" stop-color="#cfe0ee"/>
           </radialGradient>
-          <radialGradient id="headGrad" cx="35%" cy="20%" r="95%">
+          <radialGradient id="headGrad" cx="32%" cy="22%" r="90%">
             <stop offset="0%" stop-color="#ffffff"/>
-            <stop offset="65%" stop-color="#eef5fb"/>
-            <stop offset="100%" stop-color="#cfe0ee"/>
+            <stop offset="65%" stop-color="#f2f8fc"/>
+            <stop offset="100%" stop-color="#d5e6f2"/>
           </radialGradient>
-          <linearGradient id="stripeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#0a7ab8"/>
+          <linearGradient id="stripeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#6fd0ff"/>
             <stop offset="50%" stop-color="#17aef2"/>
-            <stop offset="100%" stop-color="#6fd0ff"/>
+            <stop offset="100%" stop-color="#0a7ab8"/>
           </linearGradient>
-          <radialGradient id="eyeGrad" cx="35%" cy="30%" r="75%">
-            <stop offset="0%" stop-color="#4a5f70"/>
-            <stop offset="100%" stop-color="#1c2833"/>
+          <radialGradient id="eyeWhiteGrad" cx="35%" cy="30%" r="80%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#eaf3fa"/>
           </radialGradient>
           <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#0a3550" flood-opacity="0.3"/>
-          </filter>
-          <filter id="skinTexture" x="-20%" y="-20%" width="140%" height="140%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.7 0.85" numOctaves="2" seed="5" result="noise"/>
-            <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.09 0" result="fadedNoise"/>
-            <feComposite in="fadedNoise" in2="SourceGraphic" operator="in" result="texture"/>
-            <feBlend in="SourceGraphic" in2="texture" mode="multiply"/>
+            <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#0a3550" flood-opacity="0.25"/>
           </filter>
         </defs>
 
-        <ellipse cx="230" cy="193" rx="150" ry="9" fill="#0a3550" opacity="0.14"/>
+        <ellipse cx="120" cy="228" rx="70" ry="9" fill="#0a3550" opacity="0.13"/>
 
         <g filter="url(#softShadow)">
-          <path d="M300 95
-                   C 292 78, 270 66, 240 66
-                   C 210 66, 200 82, 195 92
-                   C 150 96, 90 98, 40 101
-                   C 25 102, 15 104, 15 107
-                   C 25 111, 45 115, 90 118
-                   C 140 122, 175 126, 195 132
-                   C 205 150, 225 158, 245 152
-                   C 265 146, 278 132, 285 118
-                   C 290 108, 296 100, 300 95 Z"
-                fill="url(#bodyGrad)" stroke="#b9cddb" stroke-width="2.5" filter="url(#skinTexture)"/>
-
-          <ellipse cx="255" cy="82" rx="20" ry="12" fill="#ffffff" opacity="0.5" transform="rotate(-18 255 82)"/>
-
-          <path d="M290 112 C 302 108, 311 113, 310 122 C 309 129, 300 131, 293 126" fill="url(#bodyGrad)" stroke="#b9cddb" stroke-width="2.5" stroke-linecap="round"/>
-          <polygon points="306,116 313,119 306,123" fill="#eef5fb" stroke="#7d93a3" stroke-width="1.2"/>
-          <polygon points="301,124 309,126 302,131" fill="#eef5fb" stroke="#7d93a3" stroke-width="1.2"/>
-
-          <path d="M212 132 C 198 150, 194 168, 199 186 L 227 186 C 226 168, 230 148, 236 134 Z" fill="url(#bodyGrad)" stroke="#b9cddb" stroke-width="2.5" filter="url(#skinTexture)"/>
-          <ellipse cx="215" cy="150" rx="7" ry="14" fill="#ffffff" opacity="0.4" transform="rotate(-8 215 150)"/>
-          <path d="M246 138 C 238 154, 236 170, 241 188 L 269 188 C 267 170, 270 152, 275 142 Z" fill="url(#bodyGrad)" stroke="#b9cddb" stroke-width="2.5" filter="url(#skinTexture)"/>
-          <ellipse cx="252" cy="156" rx="7" ry="14" fill="#ffffff" opacity="0.4" transform="rotate(-8 252 156)"/>
-
-          <path d="M193 186 L 229 186 L 234 193 L 225 196 L 216 193 L 207 196 L 199 193 Z" fill="url(#bodyGrad)" stroke="#b9cddb" stroke-width="2.5"/>
-          <path d="M235 188 L 271 188 L 276 195 L 267 198 L 258 195 L 249 198 L 241 195 Z" fill="url(#bodyGrad)" stroke="#b9cddb" stroke-width="2.5"/>
-          <path d="M225 196 L 227 201 M216 193 L 217 199 M207 196 L 206 201" stroke="#7d93a3" stroke-width="1.6" stroke-linecap="round" fill="none"/>
-          <path d="M267 198 L 269 203 M258 195 L 259 201 M249 198 L 248 203" stroke="#7d93a3" stroke-width="1.6" stroke-linecap="round" fill="none"/>
-
-          <path d="M298 78
-                   C 312 58, 340 50, 358 58
-                   C 373 65, 383 78, 384 92
-                   C 385 101, 379 108, 368 110
-                   L 385 116
-                   L 361 123
-                   C 356 133, 342 137, 330 130
-                   C 314 121, 301 105, 297 91
-                   C 295 87, 296 82, 298 78 Z"
-                fill="url(#headGrad)" stroke="#b9cddb" stroke-width="2.5" filter="url(#skinTexture)"/>
-          <ellipse cx="330" cy="66" rx="17" ry="10" fill="#ffffff" opacity="0.55" transform="rotate(-14 330 66)"/>
-
-          <polygon points="342,111 347,121 352,111" fill="#ffffff" stroke="#b9cddb" stroke-width="1.6"/>
-          <polygon points="353,112 358,123 363,112" fill="#ffffff" stroke="#b9cddb" stroke-width="1.6"/>
-          <polygon points="364,111 369,121 374,111" fill="#ffffff" stroke="#b9cddb" stroke-width="1.6"/>
-
-          <path d="M310 82 C 316 76, 327 76, 333 82" stroke="#9fb4c4" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-          <circle cx="325" cy="88" r="6.5" fill="url(#eyeGrad)"/>
-          <circle cx="327.5" cy="85.3" r="2.2" fill="#ffffff"/>
-          <ellipse cx="378" cy="92" rx="2.4" ry="3.2" fill="#8ea3b4"/>
-
           <g id="spikes">
-            <polygon id="spike1" points="55,108 65,95 72,110" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.4"/>
-            <polygon id="spike2" points="115,95 125,82 132,97" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.4"/>
-            <polygon id="spike3" points="175,86 185,73 192,88" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.4"/>
-            <polygon id="spike4" points="230,74 240,61 247,76" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.4"/>
+            <polygon id="spike1" points="70,120 58,98 84,110" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.2"/>
+            <polygon id="spike2" points="95,98 88,72 110,92" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.2"/>
+            <polygon id="spike3" points="130,92 152,72 145,98" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.2"/>
+            <polygon id="spike4" points="156,110 182,98 170,120" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.2"/>
           </g>
 
-          <path d="M298 80 C 280 68, 260 66, 240 68 C 210 71, 200 84, 195 92 C 150 96, 90 98, 40 101"
-                fill="none" stroke="url(#stripeGrad)" stroke-width="6" stroke-linecap="round"/>
+          <path d="M60 128 C 40 118, 26 132, 34 148 C 40 158, 54 158, 60 150 Z" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <path d="M180 128 C 200 118, 214 132, 206 148 C 200 158, 186 158, 180 150 Z" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <polygon points="38,146 33,153 42,153" fill="#eef5fb" stroke="#8ea3b4" stroke-width="1.2"/>
+          <polygon points="202,146 198,153 207,153" fill="#eef5fb" stroke="#8ea3b4" stroke-width="1.2"/>
+
+          <ellipse cx="120" cy="150" rx="64" ry="58" fill="url(#headGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <ellipse cx="95" cy="112" rx="24" ry="16" fill="#ffffff" opacity="0.55" transform="rotate(-18 95 112)"/>
+
+          <path d="M84 176 C 96 186, 144 186, 156 176 C 158 184, 150 194, 120 195 C 90 194, 82 184, 84 176 Z" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2"/>
+          <polygon points="104,181 109,190 114,181" fill="#ffffff" stroke="#c3d5e2" stroke-width="1.4"/>
+          <polygon points="118,183 123,192 128,183" fill="#ffffff" stroke="#c3d5e2" stroke-width="1.4"/>
+          <polygon points="132,181 137,190 142,181" fill="#ffffff" stroke="#c3d5e2" stroke-width="1.4"/>
+
+          <ellipse cx="82" cy="150" rx="26" ry="27" fill="url(#eyeWhiteGrad)" stroke="#c3d5e2" stroke-width="2"/>
+          <ellipse cx="158" cy="150" rx="26" ry="27" fill="url(#eyeWhiteGrad)" stroke="#c3d5e2" stroke-width="2"/>
+          <circle cx="82" cy="154" r="14" fill="#1c2833"/>
+          <circle cx="158" cy="154" r="14" fill="#1c2833"/>
+          <circle cx="86.5" cy="148" r="5" fill="#ffffff"/>
+          <circle cx="162.5" cy="148" r="5" fill="#ffffff"/>
+          <circle cx="78" cy="161" r="2.4" fill="#ffffff" opacity="0.8"/>
+          <circle cx="154" cy="161" r="2.4" fill="#ffffff" opacity="0.8"/>
+
+          <ellipse cx="65" cy="172" rx="11" ry="6" fill="#ffc7c7" opacity="0.6"/>
+          <ellipse cx="175" cy="172" rx="11" ry="6" fill="#ffc7c7" opacity="0.6"/>
+
+          <ellipse cx="120" cy="118" rx="45" ry="34" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <ellipse cx="108" cy="102" rx="16" ry="10" fill="#ffffff" opacity="0.5" transform="rotate(-16 108 102)"/>
+          <polygon points="112,132 118,140 124,132" fill="#ffffff" stroke="#c3d5e2" stroke-width="1.4"/>
+          <path d="M100 128 C 106 132, 134 132, 140 128" stroke="#9fb4c4" stroke-width="2" fill="none" stroke-linecap="round"/>
         </g>
       </svg>
+    </div>
+    <div class="pet-actions">
+      <button class="pet-btn" id="petBtn" type="button">💙 Fazer carinho</button>
+      <button class="pet-btn" id="feedBtn" type="button">🍖 Alimentar (15 🪙)</button>
     </div>
     <div class="speech-bubble" id="speech">Oi! Eu sou o Dino! Vamos fazer as tarefas de hoje?</div>
     <div class="stats-row">
@@ -576,6 +590,7 @@
   render();
   initTabs();
   initGame();
+  initPetActions();
 
   document.getElementById('addTaskForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -908,6 +923,60 @@
         el.style.animationDuration = (2 + Math.random() * 1.5) + 's';
         document.body.appendChild(el);
         setTimeout(function () { el.remove(); }, 3600);
+      })();
+    }
+  }
+
+  var PET_PHRASES = [
+    'Ahh, adorei o carinho! 💙', 'Isso faz cócegas! 😄', 'O Dino está feliz agora!',
+    'Mais um carinho, por favor!', 'Você é o melhor amigo do Dino!'
+  ];
+  var FEED_PHRASES = [
+    'Nhom nhom, delicioso! 🍖', 'Obrigado pela comidinha!', 'Isso estava saboroso!',
+    'O Dino ficou satisfeito!'
+  ];
+  var FEED_COST = 15;
+
+  function initPetActions() {
+    document.getElementById('petBtn').addEventListener('click', petDino);
+    document.getElementById('dinoWrap').addEventListener('click', petDino);
+    document.getElementById('feedBtn').addEventListener('click', feedDino);
+  }
+
+  function petDino() {
+    say(PET_PHRASES[Math.floor(Math.random() * PET_PHRASES.length)]);
+    launchHearts();
+    renderDino('squish');
+  }
+
+  function feedDino() {
+    if (state.coins < FEED_COST) {
+      say('Faltam moedas para alimentar o Dino. Complete tarefas para ganhar mais! 🪙');
+      return;
+    }
+    state.coins -= FEED_COST;
+    save();
+    renderDino('bounce');
+    renderShopTab();
+    document.getElementById('coinPill').textContent = '🪙 ' + state.coins + ' moedas';
+    say(FEED_PHRASES[Math.floor(Math.random() * FEED_PHRASES.length)]);
+    launchHearts();
+  }
+
+  function launchHearts() {
+    var wrap = document.getElementById('dinoWrap');
+    var rect = wrap.getBoundingClientRect();
+    var emojis = ['💙', '✨', '⭐'];
+    for (var i = 0; i < 6; i++) {
+      (function () {
+        var el = document.createElement('span');
+        el.className = 'heart-particle';
+        el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+        el.style.left = (rect.left + rect.width / 2 - 10 + (Math.random() * 60 - 30)) + 'px';
+        el.style.top = (rect.top + rect.height / 2) + 'px';
+        el.style.animationDelay = (Math.random() * 0.2) + 's';
+        document.body.appendChild(el);
+        setTimeout(function () { el.remove(); }, 1400);
       })();
     }
   }
