@@ -12,6 +12,7 @@
     --amarelo: #ffc93c;
     --verde: #4ecb71;
     --vermelho: #ff6b6b;
+    --roxo: #9c6bff;
     --texto: #2b3a4a;
     --fundo: #f2f9ff;
   }
@@ -23,23 +24,14 @@
     color: var(--texto);
     min-height: 100vh;
   }
-  .app {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 16px 16px 60px;
-  }
+  .app { max-width: 900px; margin: 0 auto; padding: 16px 16px 60px; }
   h1 {
     text-align: center;
     font-size: clamp(24px, 5vw, 34px);
     color: var(--azul-escuro);
     margin: 8px 0 4px;
   }
-  .subtitle {
-    text-align: center;
-    color: #6b7f8f;
-    margin-bottom: 20px;
-    font-size: 16px;
-  }
+  .subtitle { text-align: center; color: #6b7f8f; margin-bottom: 20px; font-size: 16px; }
 
   .dino-stage {
     background: white;
@@ -47,7 +39,7 @@
     box-shadow: 0 8px 24px rgba(23,174,242,0.15);
     padding: 20px;
     text-align: center;
-    margin-bottom: 24px;
+    margin-bottom: 18px;
     position: relative;
     overflow: hidden;
   }
@@ -99,10 +91,26 @@
     border-radius: 16px;
     padding: 10px 16px;
     max-width: 420px;
-    margin: 6px auto 18px;
+    margin: 6px auto 14px;
     font-size: 16px;
     font-weight: 600;
     min-height: 24px;
+  }
+
+  .stats-row {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .coin-pill {
+    background: linear-gradient(135deg, var(--amarelo), #ffb03c);
+    color: #6b4a00;
+    font-weight: bold;
+    padding: 6px 16px;
+    border-radius: 999px;
+    font-size: 15px;
   }
 
   .xp-bar-wrap { max-width: 380px; margin: 0 auto; }
@@ -122,19 +130,43 @@
   }
   .xp-text { margin-top: 6px; font-size: 14px; color: #6b7f8f; font-weight: bold; }
 
-  .tasks-panel {
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    background: white;
+    padding: 6px;
+    border-radius: 16px;
+    box-shadow: 0 4px 14px rgba(23,174,242,0.1);
+  }
+  .tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 12px 8px;
+    font-size: 15px;
+    font-weight: bold;
+    font-family: inherit;
+    color: #7a8fa0;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .tab-btn.active { background: var(--azul); color: white; }
+
+  .panel {
     background: white;
     border-radius: 24px;
     box-shadow: 0 8px 24px rgba(23,174,242,0.1);
     padding: 20px;
+    display: none;
   }
-  .tasks-panel h2 {
-    color: var(--azul-escuro);
-    font-size: 20px;
-    margin-top: 0;
-  }
-  #taskList { list-style: none; padding: 0; margin: 0 0 16px; }
-  #taskList li {
+  .panel.active { display: block; }
+  .panel h2 { color: var(--azul-escuro); font-size: 20px; margin-top: 0; }
+  .panel h3 { color: var(--azul-escuro); font-size: 17px; margin: 22px 0 10px; }
+  .day-note { color: #7a8fa0; font-size: 14px; margin-top: -6px; margin-bottom: 14px; }
+
+  ul.task-list { list-style: none; padding: 0; margin: 0 0 10px; }
+  ul.task-list li {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -142,15 +174,22 @@
     border-radius: 14px;
     padding: 12px 14px;
     margin-bottom: 10px;
-    font-size: 17px;
+    font-size: 16px;
   }
-  #taskList li.done { background: #eafaef; }
-  #taskList li.done .task-text { text-decoration: line-through; color: #9ab; }
-  #taskList input[type="checkbox"] {
+  ul.task-list li.done { background: #eafaef; }
+  ul.task-list li.done .task-text { text-decoration: line-through; color: #9ab; }
+  ul.task-list input[type="checkbox"] {
     width: 26px;
     height: 26px;
     accent-color: var(--verde);
     cursor: pointer;
+    flex-shrink: 0;
+  }
+  .task-time {
+    font-weight: bold;
+    color: var(--azul-escuro);
+    min-width: 48px;
+    font-size: 14px;
     flex-shrink: 0;
   }
   .task-text { flex: 1; word-break: break-word; }
@@ -173,7 +212,7 @@
     font-family: inherit;
   }
   #newTaskInput:focus { outline: none; border-color: var(--azul); }
-  #addTaskForm button {
+  #addTaskForm button, .big-btn {
     background: var(--azul);
     color: white;
     border: none;
@@ -183,9 +222,63 @@
     font-weight: bold;
     cursor: pointer;
   }
-  #addTaskForm button:active { background: var(--azul-escuro); }
-
+  .big-btn:disabled { background: #cfd8e3; cursor: not-allowed; }
   .empty-msg { color: #9ab; text-align: center; padding: 12px 0; }
+
+  .reward-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .reward-card {
+    background: var(--azul-claro);
+    border-radius: 16px;
+    padding: 16px;
+    text-align: center;
+  }
+  .reward-card .icon { font-size: 32px; }
+  .reward-card .name { font-weight: bold; margin: 6px 0; min-height: 40px; }
+  .reward-card .cost { color: var(--azul-escuro); font-weight: bold; margin-bottom: 10px; }
+  .reward-card button {
+    background: var(--amarelo);
+    border: none;
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-weight: bold;
+    font-family: inherit;
+    cursor: pointer;
+    width: 100%;
+  }
+  .reward-card button:disabled { background: #e4eef5; color: #aab8c2; cursor: not-allowed; }
+
+  #historyList { list-style: none; padding: 0; margin: 8px 0 0; }
+  #historyList li { color: #7a8fa0; font-size: 14px; padding: 4px 0; }
+
+  .game-wrap { text-align: center; }
+  .game-locked {
+    background: var(--azul-claro);
+    border-radius: 18px;
+    padding: 40px 20px;
+    color: var(--azul-escuro);
+    font-weight: bold;
+    font-size: 17px;
+  }
+  .game-locked .lock-icon { font-size: 44px; display: block; margin-bottom: 10px; }
+  #gameCanvas {
+    background: linear-gradient(180deg, #eaf7ff 0%, #ffffff 100%);
+    border: 3px solid var(--azul);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 640px;
+    height: auto;
+    touch-action: none;
+    cursor: pointer;
+  }
+  .game-controls { margin-top: 12px; color: #7a8fa0; font-size: 14px; }
+  .score-row {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    font-weight: bold;
+    color: var(--azul-escuro);
+    margin-bottom: 8px;
+  }
 
   .confetti {
     position: fixed;
@@ -199,12 +292,7 @@
     to { transform: translateY(110vh) rotate(360deg); opacity: 0.9; }
   }
 
-  footer {
-    text-align: center;
-    color: #b7c6d1;
-    font-size: 12px;
-    margin-top: 24px;
-  }
+  footer { text-align: center; color: #b7c6d1; font-size: 12px; margin-top: 24px; }
 </style>
 </head>
 <body>
@@ -217,64 +305,138 @@
     <div class="dino-wrap" id="dinoWrap">
       <span class="hat" id="hat">🎉</span>
       <svg id="dinoSvg" viewBox="0 0 300 220" width="100%" height="100%">
-        <path d="M205 145 C 245 132, 288 148, 283 174 C 279 196, 246 192, 214 172 C 200 163, 198 152, 205 145 Z" fill="#ffffff" stroke="#cfd8e3" stroke-width="3"/>
-        <ellipse cx="168" cy="122" rx="54" ry="62" fill="#ffffff" stroke="#cfd8e3" stroke-width="3"/>
-        <path d="M122 132 C 108 130, 98 138, 100 148 C 102 154, 110 152, 116 146" fill="#ffffff" stroke="#cfd8e3" stroke-width="3" stroke-linecap="round"/>
-        <circle cx="100" cy="149" r="3" fill="#cfd8e3"/>
-        <circle cx="106" cy="153" r="3" fill="#cfd8e3"/>
-        <rect x="138" y="168" width="24" height="46" rx="12" fill="#ffffff" stroke="#cfd8e3" stroke-width="3"/>
-        <rect x="176" y="168" width="24" height="46" rx="12" fill="#ffffff" stroke="#cfd8e3" stroke-width="3"/>
-        <ellipse cx="150" cy="215" rx="16" ry="7" fill="#ffffff" stroke="#cfd8e3" stroke-width="3"/>
-        <ellipse cx="188" cy="215" rx="16" ry="7" fill="#ffffff" stroke="#cfd8e3" stroke-width="3"/>
-        <path d="M140 216 L136 222 M150 217 L150 224 M160 216 L164 222" stroke="#cfd8e3" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-        <path d="M178 216 L174 222 M188 217 L188 224 M198 216 L202 222" stroke="#cfd8e3" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-        <path d="M48 48 Q40 20 82 14 Q128 8 138 44 Q142 62 122 74 L148 80 L120 88 Q122 104 94 108 Q54 108 44 84 Q34 64 48 48 Z" fill="#ffffff" stroke="#cfd8e3" stroke-width="3"/>
-        <polygon points="60,86 65,96 70,86" fill="#ffffff" stroke="#cfd8e3" stroke-width="2"/>
-        <polygon points="78,88 83,98 88,88" fill="#ffffff" stroke="#cfd8e3" stroke-width="2"/>
-        <polygon points="96,88 101,97 106,88" fill="#ffffff" stroke="#cfd8e3" stroke-width="2"/>
-        <circle cx="92" cy="42" r="6.5" fill="#2b3a4a"/>
-        <circle cx="94.5" cy="39.5" r="2.2" fill="#ffffff"/>
-        <ellipse cx="72" cy="58" rx="8" ry="4.5" fill="#ffc7c7" opacity="0.7"/>
-        <ellipse cx="128" cy="35" rx="2.3" ry="3" fill="#c9d4dc"/>
-        <g id="spikes">
-          <polygon id="spike1" points="128,66 137,48 146,66" fill="#ffffff" stroke="#17aef2" stroke-width="2.5"/>
-          <polygon id="spike2" points="150,64 159,44 168,64" fill="#ffffff" stroke="#17aef2" stroke-width="2.5"/>
-          <polygon id="spike3" points="172,66 181,48 190,66" fill="#ffffff" stroke="#17aef2" stroke-width="2.5"/>
-          <polygon id="spike4" points="194,72 203,56 212,72" fill="#ffffff" stroke="#17aef2" stroke-width="2.5"/>
+        <defs>
+          <radialGradient id="bodyGrad" cx="35%" cy="28%" r="80%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="65%" stop-color="#f0f7fc"/>
+            <stop offset="100%" stop-color="#d5e6f2"/>
+          </radialGradient>
+          <radialGradient id="headGrad" cx="32%" cy="24%" r="85%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="70%" stop-color="#f0f7fc"/>
+            <stop offset="100%" stop-color="#d5e6f2"/>
+          </radialGradient>
+          <linearGradient id="stripeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#6fd0ff"/>
+            <stop offset="45%" stop-color="#17aef2"/>
+            <stop offset="100%" stop-color="#0a7ab8"/>
+          </linearGradient>
+          <radialGradient id="eyeGrad" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#4a5f70"/>
+            <stop offset="100%" stop-color="#1c2833"/>
+          </radialGradient>
+          <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#0a3550" flood-opacity="0.28"/>
+          </filter>
+        </defs>
+
+        <ellipse cx="168" cy="220" rx="95" ry="10" fill="#0a3550" opacity="0.12"/>
+
+        <g filter="url(#softShadow)">
+          <path d="M205 145 C 245 132, 288 148, 283 174 C 279 196, 246 192, 214 172 C 200 163, 198 152, 205 145 Z" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <ellipse cx="168" cy="122" rx="54" ry="62" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <ellipse cx="150" cy="90" rx="20" ry="30" fill="#ffffff" opacity="0.55"/>
+          <path d="M122 132 C 108 130, 98 138, 100 148 C 102 154, 110 152, 116 146" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="100" cy="149" r="3" fill="#c3d5e2"/>
+          <circle cx="106" cy="153" r="3" fill="#c3d5e2"/>
+          <rect x="138" y="168" width="24" height="46" rx="12" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <rect x="176" y="168" width="24" height="46" rx="12" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <ellipse cx="150" cy="215" rx="16" ry="7" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <ellipse cx="188" cy="215" rx="16" ry="7" fill="url(#bodyGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <path d="M140 216 L136 222 M150 217 L150 224 M160 216 L164 222" stroke="#c3d5e2" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+          <path d="M178 216 L174 222 M188 217 L188 224 M198 216 L202 222" stroke="#c3d5e2" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+          <path d="M48 48 Q40 20 82 14 Q128 8 138 44 Q142 62 122 74 L148 80 L120 88 Q122 104 94 108 Q54 108 44 84 Q34 64 48 48 Z" fill="url(#headGrad)" stroke="#c3d5e2" stroke-width="2.5"/>
+          <ellipse cx="70" cy="35" rx="16" ry="12" fill="#ffffff" opacity="0.6"/>
+          <polygon points="60,86 65,96 70,86" fill="#ffffff" stroke="#c3d5e2" stroke-width="2"/>
+          <polygon points="78,88 83,98 88,88" fill="#ffffff" stroke="#c3d5e2" stroke-width="2"/>
+          <polygon points="96,88 101,97 106,88" fill="#ffffff" stroke="#c3d5e2" stroke-width="2"/>
+          <circle cx="92" cy="42" r="6.5" fill="url(#eyeGrad)"/>
+          <circle cx="94.5" cy="39.5" r="2.2" fill="#ffffff"/>
+          <ellipse cx="72" cy="58" rx="8" ry="4.5" fill="#ffc7c7" opacity="0.65"/>
+          <ellipse cx="128" cy="35" rx="2.3" ry="3" fill="#a9bac6"/>
+          <g id="spikes">
+            <polygon id="spike1" points="128,66 137,48 146,66" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.5"/>
+            <polygon id="spike2" points="150,64 159,44 168,64" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.5"/>
+            <polygon id="spike3" points="172,66 181,48 190,66" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.5"/>
+            <polygon id="spike4" points="194,72 203,56 212,72" fill="url(#stripeGrad)" stroke="#0a7ab8" stroke-width="1.5"/>
+          </g>
+          <path d="M85 16 C 120 14, 140 40, 150 60 C 165 90, 190 110, 220 135 C 240 150, 260 158, 278 165"
+                fill="none" stroke="url(#stripeGrad)" stroke-width="7" stroke-linecap="round"/>
         </g>
-        <path d="M85 16 C 120 14, 140 40, 150 60 C 165 90, 190 110, 220 135 C 240 150, 260 158, 278 165"
-              fill="none" stroke="#17aef2" stroke-width="7" stroke-linecap="round"/>
       </svg>
     </div>
     <div class="speech-bubble" id="speech">Oi! Eu sou o Dino! Vamos fazer as tarefas de hoje?</div>
+    <div class="stats-row">
+      <div class="coin-pill" id="coinPill">🪙 0 moedas</div>
+    </div>
     <div class="xp-bar-wrap">
       <div class="xp-bar"><div class="xp-fill" id="xpFill"></div></div>
-      <div class="xp-text" id="xpText">0 / 40 XP</div>
+      <div class="xp-text" id="xpText">0 / 300 XP</div>
     </div>
   </div>
 
-  <div class="tasks-panel">
-    <h2>📋 Tarefas de hoje</h2>
-    <ul id="taskList"></ul>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="tasks" id="tabBtnTasks">📋 Tarefas</button>
+    <button class="tab-btn" data-tab="shop" id="tabBtnShop">🎁 Loja</button>
+    <button class="tab-btn" data-tab="game" id="tabBtnGame">🎮 Jogo</button>
+  </nav>
+
+  <section class="panel active" id="panel-tasks">
+    <h2 id="dayThemeTitle">Tarefas de hoje</h2>
+    <p class="day-note" id="dayNote"></p>
+    <ul class="task-list" id="dayTaskList"></ul>
+
+    <h3>🌟 Desafio da Semana</h3>
+    <ul class="task-list" id="habitList"></ul>
+
+    <h3>➕ Tarefas extras</h3>
+    <ul class="task-list" id="extraTaskList"></ul>
     <form id="addTaskForm">
-      <input id="newTaskInput" type="text" placeholder="Digite uma nova tarefa..." maxlength="60" required>
+      <input id="newTaskInput" type="text" placeholder="Digite uma tarefa extra..." maxlength="60" required>
       <button type="submit">Adicionar</button>
     </form>
-  </div>
+  </section>
+
+  <section class="panel" id="panel-shop">
+    <h2>🎁 Loja de Recompensas</h2>
+    <p class="day-note">Troque suas moedas por prêmios!</p>
+    <div class="reward-grid" id="rewardGrid"></div>
+    <h3>Resgatado recentemente</h3>
+    <ul id="historyList"></ul>
+  </section>
+
+  <section class="panel" id="panel-game">
+    <h2>🎮 Corrida do Dino</h2>
+    <div class="game-wrap">
+      <div class="game-locked" id="gameLocked">
+        <span class="lock-icon">🔒</span>
+        Termine as tarefas de hoje para desbloquear o jogo!
+      </div>
+      <div id="gameUnlockedArea" style="display:none;">
+        <div class="score-row">
+          <span id="gameScore">Pontos: 0</span>
+          <span id="gameHighScore">Recorde: 0</span>
+        </div>
+        <canvas id="gameCanvas" width="640" height="200"></canvas>
+        <div class="game-controls">Aperte ESPAÇO, clique ou toque na tela para pular</div>
+        <button class="big-btn" id="gameStartBtn" style="margin-top:12px;">Jogar</button>
+      </div>
+    </div>
+  </section>
 
   <footer>Feito com carinho para o Dino crescer todo dia 🦖💙</footer>
 </div>
 
 <script>
 (function () {
-  var STORAGE_KEY = 'dinoAppState';
+  var STORAGE_KEY = 'dinoAppStateV2';
 
   var LEVELS = [
-    { name: 'Bebê',        min: 0,   max: 40,      scale: 0.62 },
-    { name: 'Filhote',     min: 40,  max: 100,     scale: 0.78 },
-    { name: 'Crescendo',   min: 100, max: 180,     scale: 0.92 },
-    { name: 'Quase Adulto',min: 180, max: 280,     scale: 1.06 },
-    { name: 'Dino Mestre', min: 280, max: Infinity,scale: 1.2 }
+    { name: 'Bebê',         min: 0,    max: 300,     scale: 0.6 },
+    { name: 'Filhote',      min: 300,  max: 700,     scale: 0.76 },
+    { name: 'Crescendo',    min: 700,  max: 1200,    scale: 0.92 },
+    { name: 'Quase Adulto', min: 1200, max: 1800,    scale: 1.06 },
+    { name: 'Dino Mestre',  min: 1800, max: Infinity,scale: 1.2 }
   ];
 
   var PRAISES = [
@@ -282,39 +444,137 @@
     'Uhuu, tarefa completa!', 'Você é demais!', 'O Dino está orgulhoso de você!'
   ];
 
-  var defaultTasks = [
-    'Escovar os dentes',
-    'Arrumar a cama',
-    'Fazer a lição de casa',
-    'Guardar os brinquedos',
-    'Ler um pouquinho'
+  var XP_PER_TASK = 10;
+  var COINS_PER_TASK = 10;
+  var BONUS_XP = 30;
+  var BONUS_COINS = 30;
+
+  var SCHEDULE = {
+    1: { theme: 'Segunda-feira — Começando as férias', tasks: [
+      { time: '08:00', text: 'Acordar, higiene e arrumar a cama' },
+      { time: '08:30', text: 'Café da manhã' },
+      { time: '09:00', text: 'Leitura (20 minutos)' },
+      { time: '09:30', text: 'Aula de tênis (ou treino, se não houver aula)' },
+      { time: '11:00', text: 'Regar as plantas e organizar os brinquedos' },
+      { time: '12:30', text: 'Almoço' },
+      { time: '13:30', text: 'Descanso (livro, desenho ou LEGO)' },
+      { time: '15:00', text: 'Videogame (1 hora)' },
+      { time: '16:00', text: 'Lanche' },
+      { time: '16:30', text: 'Brincar ao ar livre' },
+      { time: '18:30', text: 'Banho' },
+      { time: '19:00', text: 'Jantar' },
+      { time: '20:00', text: 'Jogo de tabuleiro com a família' }
+    ]},
+    2: { theme: 'Terça-feira — Dia da criatividade', tasks: [
+      { time: '08:00', text: 'Rotina da manhã' },
+      { time: '09:00', text: 'Leitura' },
+      { time: '09:30', text: 'Passeio de bicicleta ou caminhada' },
+      { time: '10:30', text: 'Fazer um desenho ou pintura' },
+      { time: '11:15', text: 'Dobrar toalhas e organizar os livros' },
+      { time: '12:30', text: 'Almoço' },
+      { time: '13:30', text: 'Tempo livre' },
+      { time: '15:00', text: 'Praticar guitarra (20–30 minutos)' },
+      { time: '15:30', text: 'Videogame' },
+      { time: '16:30', text: 'Lanche' },
+      { time: '17:00', text: 'Brincar com bola, carrinhos ou amigos' },
+      { time: '20:00', text: 'Filme em família' }
+    ]},
+    3: { theme: 'Quarta-feira — Dia do cientista', tasks: [
+      { time: '08:00', text: 'Rotina da manhã' },
+      { time: '09:00', text: 'Leitura' },
+      { time: '09:30', text: 'Aula de tênis (ou treino)' },
+      { time: '11:00', text: 'Experiência simples (vulcão, tinta invisível, bolhas gigantes...)' },
+      { time: '11:40', text: 'Colocar a mesa do almoço' },
+      { time: '12:30', text: 'Almoço' },
+      { time: '13:30', text: 'Descanso' }
+    ]},
+    4: { theme: 'Quinta-feira — Dia MasterChef', tasks: [
+      { time: '08:00', text: 'Rotina da manhã' },
+      { time: '09:00', text: 'Leitura' },
+      { time: '09:30', text: 'Guitarra' },
+      { time: '10:15', text: 'Preparar uma receita simples (bolo de caneca, sanduíche natural, cookies, suco...)' },
+      { time: '11:15', text: 'Organizar os sapatos e limpar a escrivaninha' },
+      { time: '12:30', text: 'Almoço' },
+      { time: '13:30', text: 'LEGO ou quebra-cabeça' },
+      { time: '15:00', text: 'Videogame' },
+      { time: '16:00', text: 'Lanche' },
+      { time: '16:30', text: 'Brincadeira livre' },
+      { time: '20:00', text: 'Escolher um livro para ler com vocês' }
+    ]},
+    5: { theme: 'Sexta-feira — Dia da aventura', tasks: [
+      { time: '08:00', text: 'Rotina da manhã' },
+      { time: '09:00', text: 'Leitura' },
+      { time: '09:30', text: 'Aula de tênis (ou atividade física)' },
+      { time: '11:00', text: 'Organizar o quarto para o fim de semana' },
+      { time: '12:30', text: 'Almoço' },
+      { time: '13:30', text: 'Tempo livre' },
+      { time: '15:00', text: 'Videogame' },
+      { time: '16:00', text: 'Sorvete ou lanche especial' },
+      { time: '17:00', text: 'Passeio (praça, parque ou visita aos avós)' },
+      { time: '20:00', text: 'Noite do cinema (ele escolhe o filme)' }
+    ]},
+    0: { theme: 'Domingo — Dia livre', tasks: [] },
+    6: { theme: 'Sábado — Dia livre', tasks: [] }
+  };
+
+  var HABITS = [
+    'Arrumei minha cama',
+    'Li um pouquinho',
+    'Fiz minhas tarefas da casa',
+    'Pratiquei guitarra',
+    'Fiz atividade física',
+    'Brinquei ao ar livre',
+    'Respeitei o tempo do videogame',
+    'Fui gentil e educado'
+  ];
+
+  var REWARDS = [
+    { id: 'sorvete', icon: '🍦', name: 'Tomar sorvete', cost: 50 },
+    { id: 'filme', icon: '🎬', name: 'Escolher o filme da noite', cost: 60 },
+    { id: 'jantar', icon: '🍽️', name: 'Escolher o jantar de sábado', cost: 80 },
+    { id: 'passeio', icon: '🚲', name: 'Um passeio diferente', cost: 120 },
+    { id: 'jogos', icon: '🎲', name: 'Noite de jogos em família', cost: 100 }
   ];
 
   var state = load();
   checkNewDay();
   render();
+  initTabs();
+  initGame();
 
   document.getElementById('addTaskForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var input = document.getElementById('newTaskInput');
     var text = input.value.trim();
     if (!text) return;
-    state.tasks.push({ id: Date.now(), text: text, done: false });
+    state.extraTasks.push({ id: 'extra-' + Date.now(), text: text, done: false });
     input.value = '';
     save();
-    render();
+    renderTasksTab();
   });
 
   function load() {
     var raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      try { return JSON.parse(raw); } catch (e) { /* fall through to defaults */ }
+      try {
+        var parsed = JSON.parse(raw);
+        if (!parsed.extraTasks) parsed.extraTasks = [];
+        if (!parsed.doneMap) parsed.doneMap = {};
+        if (!parsed.redeemHistory) parsed.redeemHistory = [];
+        if (typeof parsed.highScore !== 'number') parsed.highScore = 0;
+        return parsed;
+      } catch (e) { /* fall through */ }
     }
     return {
       xp: 0,
-      tasks: defaultTasks.map(function (t) { return { id: Date.now() + Math.random(), text: t, done: false }; }),
+      coins: 0,
+      doneMap: {},
+      extraTasks: [],
       lastDate: todayStr(),
-      bonusDate: null
+      bonusGivenDate: null,
+      gameUnlockedDate: null,
+      highScore: 0,
+      redeemHistory: []
     };
   }
 
@@ -325,10 +585,14 @@
     return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
   }
 
+  function getWeekday() { return new Date().getDay(); }
+
   function checkNewDay() {
     var today = todayStr();
     if (state.lastDate !== today) {
-      state.tasks.forEach(function (t) { t.done = false; });
+      state.doneMap = {};
+      state.extraTasks.forEach(function (t) { t.done = false; });
+      state.gameUnlockedDate = null;
       state.lastDate = today;
       save();
     }
@@ -341,45 +605,133 @@
     return LEVELS.length - 1;
   }
 
-  function render() {
-    renderTasks();
-    renderDino();
+  function getTodaySchedule() { return SCHEDULE[getWeekday()]; }
+
+  function allRequiredDone() {
+    var sched = getTodaySchedule();
+    for (var i = 0; i < sched.tasks.length; i++) {
+      if (!state.doneMap['day-' + i]) return false;
+    }
+    for (var j = 0; j < HABITS.length; j++) {
+      if (!state.doneMap['habit-' + j]) return false;
+    }
+    return true;
   }
 
-  function renderTasks() {
-    var list = document.getElementById('taskList');
-    list.innerHTML = '';
-    if (state.tasks.length === 0) {
+  function render() {
+    renderTasksTab();
+    renderShopTab();
+    renderDino();
+    renderGameLock();
+  }
+
+  function renderTasksTab() {
+    var sched = getTodaySchedule();
+    document.getElementById('dayThemeTitle').textContent = sched.theme;
+    document.getElementById('dayNote').textContent = sched.tasks.length
+      ? 'Marque cada tarefa conforme for terminando.'
+      : 'Hoje é dia livre! Aproveite, mas não esqueça do Desafio da Semana.';
+
+    var dayList = document.getElementById('dayTaskList');
+    dayList.innerHTML = '';
+    sched.tasks.forEach(function (task, i) {
+      var id = 'day-' + i;
+      dayList.appendChild(buildFixedItem(id, task.text, task.time));
+    });
+    if (!sched.tasks.length) {
       var p = document.createElement('p');
       p.className = 'empty-msg';
-      p.textContent = 'Nenhuma tarefa ainda. Adicione uma abaixo!';
-      list.appendChild(p);
-      return;
+      p.textContent = 'Sem tarefas programadas hoje.';
+      dayList.appendChild(p);
     }
-    state.tasks.forEach(function (task) {
+
+    var habitList = document.getElementById('habitList');
+    habitList.innerHTML = '';
+    HABITS.forEach(function (text, i) {
+      var id = 'habit-' + i;
+      habitList.appendChild(buildFixedItem(id, text, null));
+    });
+
+    var extraList = document.getElementById('extraTaskList');
+    extraList.innerHTML = '';
+    if (!state.extraTasks.length) {
+      var p2 = document.createElement('p');
+      p2.className = 'empty-msg';
+      p2.textContent = 'Nenhuma tarefa extra ainda.';
+      extraList.appendChild(p2);
+    }
+    state.extraTasks.forEach(function (task) {
       var li = document.createElement('li');
       if (task.done) li.className = 'done';
-
       var checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.checked = task.done;
-      checkbox.addEventListener('change', function () { toggleTask(task.id); });
-
+      checkbox.addEventListener('change', function () { toggleExtraTask(task.id); });
       var span = document.createElement('span');
       span.className = 'task-text';
       span.textContent = task.text;
-
       var delBtn = document.createElement('button');
       delBtn.className = 'delete-btn';
       delBtn.type = 'button';
       delBtn.innerHTML = '&times;';
       delBtn.title = 'Remover tarefa';
-      delBtn.addEventListener('click', function () { deleteTask(task.id); });
-
+      delBtn.addEventListener('click', function () { deleteExtraTask(task.id); });
       li.appendChild(checkbox);
       li.appendChild(span);
       li.appendChild(delBtn);
-      list.appendChild(li);
+      extraList.appendChild(li);
+    });
+  }
+
+  function buildFixedItem(id, text, time) {
+    var li = document.createElement('li');
+    var done = !!state.doneMap[id];
+    if (done) li.className = 'done';
+    var checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = done;
+    checkbox.addEventListener('change', function () { toggleFixedTask(id); });
+    li.appendChild(checkbox);
+    if (time) {
+      var timeSpan = document.createElement('span');
+      timeSpan.className = 'task-time';
+      timeSpan.textContent = time;
+      li.appendChild(timeSpan);
+    }
+    var span = document.createElement('span');
+    span.className = 'task-text';
+    span.textContent = text;
+    li.appendChild(span);
+    return li;
+  }
+
+  function renderShopTab() {
+    var grid = document.getElementById('rewardGrid');
+    grid.innerHTML = '';
+    REWARDS.forEach(function (r) {
+      var card = document.createElement('div');
+      card.className = 'reward-card';
+      var canAfford = state.coins >= r.cost;
+      card.innerHTML =
+        '<div class="icon">' + r.icon + '</div>' +
+        '<div class="name">' + r.name + '</div>' +
+        '<div class="cost">🪙 ' + r.cost + '</div>' +
+        '<button ' + (canAfford ? '' : 'disabled') + '>Resgatar</button>';
+      card.querySelector('button').addEventListener('click', function () { redeemReward(r); });
+      grid.appendChild(card);
+    });
+
+    var historyList = document.getElementById('historyList');
+    historyList.innerHTML = '';
+    if (!state.redeemHistory.length) {
+      var li = document.createElement('li');
+      li.textContent = 'Nada resgatado ainda.';
+      historyList.appendChild(li);
+    }
+    state.redeemHistory.slice(-6).reverse().forEach(function (h) {
+      var li = document.createElement('li');
+      li.textContent = h.date + ' — ' + h.name;
+      historyList.appendChild(li);
     });
   }
 
@@ -397,6 +749,8 @@
       var spike = document.getElementById('spike' + i);
       spike.style.opacity = (levelIndex + 1) >= i ? '1' : '0';
     }
+
+    document.getElementById('coinPill').textContent = '🪙 ' + state.coins + ' moedas';
 
     var xpFill = document.getElementById('xpFill');
     var xpText = document.getElementById('xpText');
@@ -416,50 +770,96 @@
     }
   }
 
-  function say(msg) {
-    document.getElementById('speech').textContent = msg;
+  function renderGameLock() {
+    var unlocked = state.gameUnlockedDate === todayStr();
+    document.getElementById('gameLocked').style.display = unlocked ? 'none' : 'block';
+    document.getElementById('gameUnlockedArea').style.display = unlocked ? 'block' : 'none';
+    document.getElementById('gameHighScore').textContent = 'Recorde: ' + state.highScore;
   }
 
-  function toggleTask(id) {
-    var task = state.tasks.find(function (t) { return t.id === id; });
-    if (!task) return;
+  function say(msg) { document.getElementById('speech').textContent = msg; }
+
+  function awardXpAndCoins(xpDelta, coinsDelta) {
+    state.xp = Math.max(0, state.xp + xpDelta);
+    state.coins = Math.max(0, state.coins + coinsDelta);
+  }
+
+  function toggleFixedTask(id) {
     var levelBefore = getLevelIndex(state.xp);
+    var wasDone = !!state.doneMap[id];
+    state.doneMap[id] = !wasDone;
+    var nowDone = state.doneMap[id];
 
-    task.done = !task.done;
-    state.xp += task.done ? 10 : -10;
-    if (state.xp < 0) state.xp = 0;
+    awardXpAndCoins(nowDone ? XP_PER_TASK : -XP_PER_TASK, nowDone ? COINS_PER_TASK : -COINS_PER_TASK);
 
-    if (task.done) {
-      var allDone = state.tasks.length > 0 && state.tasks.every(function (t) { return t.done; });
-      if (allDone && state.bonusDate !== state.lastDate) {
-        state.xp += 15;
-        state.bonusDate = state.lastDate;
-        launchConfetti();
-        say('Uau, todas as tarefas feitas! Bônus de +15 XP! 🎉');
+    if (nowDone) {
+      if (allRequiredDone()) {
+        state.gameUnlockedDate = todayStr();
+        if (state.bonusGivenDate !== todayStr()) {
+          awardXpAndCoins(BONUS_XP, BONUS_COINS);
+          state.bonusGivenDate = todayStr();
+          launchConfetti();
+          say('Uau, todas as tarefas feitas! Bônus de +' + BONUS_XP + ' XP e o jogo foi desbloqueado! 🎮🎉');
+        } else {
+          say('Tudo feito de novo! O jogo continua liberado. 🎮');
+        }
       } else {
         say(PRAISES[Math.floor(Math.random() * PRAISES.length)]);
       }
     } else {
+      state.gameUnlockedDate = allRequiredDone() ? todayStr() : null;
       say('Sem problemas, você pode marcar de novo quando terminar!');
     }
 
     save();
-    renderTasks();
+    renderTasksTab();
+    renderShopTab();
+    renderGameLock();
 
     var levelAfter = getLevelIndex(state.xp);
     if (levelAfter > levelBefore) {
       renderDino('levelup');
       launchConfetti();
-      setTimeout(function () { say('Parabéns! O Dino subiu de nível: ' + LEVELS[levelAfter].name + '! 🦕✨'); }, 50);
+      setTimeout(function () { say('Parabéns! O Dino subiu de nível: ' + LEVELS[levelAfter].name + '! 🦖✨'); }, 50);
+    } else {
+      renderDino(nowDone ? 'bounce' : null);
+    }
+  }
+
+  function toggleExtraTask(id) {
+    var task = state.extraTasks.find(function (t) { return t.id === id; });
+    if (!task) return;
+    var levelBefore = getLevelIndex(state.xp);
+    task.done = !task.done;
+    awardXpAndCoins(task.done ? XP_PER_TASK : -XP_PER_TASK, task.done ? COINS_PER_TASK : -COINS_PER_TASK);
+    say(task.done ? PRAISES[Math.floor(Math.random() * PRAISES.length)] : 'Combinado, marque de novo quando terminar!');
+    save();
+    renderTasksTab();
+    renderShopTab();
+    var levelAfter = getLevelIndex(state.xp);
+    if (levelAfter > levelBefore) {
+      renderDino('levelup');
+      launchConfetti();
     } else {
       renderDino(task.done ? 'bounce' : null);
     }
   }
 
-  function deleteTask(id) {
-    state.tasks = state.tasks.filter(function (t) { return t.id !== id; });
+  function deleteExtraTask(id) {
+    state.extraTasks = state.extraTasks.filter(function (t) { return t.id !== id; });
     save();
-    render();
+    renderTasksTab();
+  }
+
+  function redeemReward(reward) {
+    if (state.coins < reward.cost) return;
+    state.coins -= reward.cost;
+    state.redeemHistory.push({ name: reward.name, cost: reward.cost, date: todayStr() });
+    save();
+    renderShopTab();
+    renderDino();
+    launchConfetti();
+    say('Resgatado: ' + reward.name + '! Aproveite! 🎁');
   }
 
   function launchConfetti() {
@@ -474,6 +874,205 @@
         document.body.appendChild(el);
         setTimeout(function () { el.remove(); }, 3600);
       })();
+    }
+  }
+
+  function initTabs() {
+    var buttons = document.querySelectorAll('.tab-btn');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+        document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+        if (btn.dataset.tab !== 'game') stopGameLoop();
+      });
+    });
+  }
+
+  // ---------- Endless runner game ----------
+  var gameCtx, gameCanvas, gameLoopId = null;
+  var gameState = null;
+
+  function initGame() {
+    gameCanvas = document.getElementById('gameCanvas');
+    gameCtx = gameCanvas.getContext('2d');
+    document.getElementById('gameStartBtn').addEventListener('click', startGame);
+    gameCanvas.addEventListener('mousedown', jump);
+    gameCanvas.addEventListener('touchstart', function (e) { e.preventDefault(); jump(); }, { passive: false });
+    document.addEventListener('keydown', function (e) {
+      if (e.code === 'Space' && document.getElementById('panel-game').classList.contains('active')) {
+        e.preventDefault();
+        jump();
+      }
+    });
+  }
+
+  function freshGameState() {
+    return {
+      running: false,
+      gameOver: false,
+      groundY: 160,
+      dinoX: 60,
+      dinoY: 160,
+      dinoW: 34,
+      dinoH: 40,
+      velY: 0,
+      gravity: 0.9,
+      jumpForce: -14,
+      speed: 6,
+      obstacles: [],
+      spawnTimer: 0,
+      score: 0,
+      frame: 0
+    };
+  }
+
+  function startGame() {
+    gameState = freshGameState();
+    gameState.running = true;
+    document.getElementById('gameStartBtn').textContent = 'Jogar de novo';
+    document.getElementById('gameScore').textContent = 'Pontos: 0';
+    stopGameLoop();
+    gameLoop();
+  }
+
+  function jump() {
+    if (!gameState || !gameState.running) return;
+    if (gameState.dinoY >= gameState.groundY - 0.5) {
+      gameState.velY = gameState.jumpForce;
+    }
+  }
+
+  function stopGameLoop() {
+    if (gameLoopId) { cancelAnimationFrame(gameLoopId); gameLoopId = null; }
+  }
+
+  function gameLoop() {
+    if (!gameState || !gameState.running) return;
+    updateGame();
+    drawGame();
+    gameLoopId = requestAnimationFrame(gameLoop);
+  }
+
+  function updateGame() {
+    var gs = gameState;
+    gs.frame++;
+    gs.velY += gs.gravity;
+    gs.dinoY += gs.velY;
+    if (gs.dinoY > gs.groundY) { gs.dinoY = gs.groundY; gs.velY = 0; }
+
+    gs.speed = 6 + Math.min(6, gs.score * 0.01);
+
+    gs.spawnTimer -= 1;
+    if (gs.spawnTimer <= 0) {
+      var h = 30 + Math.random() * 20;
+      gs.obstacles.push({ x: gameCanvas.width, w: 18 + Math.random() * 10, h: h });
+      gs.spawnTimer = 55 + Math.random() * 55 - Math.min(40, gs.score * 0.1);
+    }
+
+    gs.obstacles.forEach(function (o) { o.x -= gs.speed; });
+    gs.obstacles = gs.obstacles.filter(function (o) { return o.x + o.w > 0; });
+
+    var dinoBox = { x: gs.dinoX, y: gs.dinoY - gs.dinoH, w: gs.dinoW, h: gs.dinoH };
+    for (var i = 0; i < gs.obstacles.length; i++) {
+      var o = gs.obstacles[i];
+      var obsBox = { x: o.x, y: gs.groundY - o.h, w: o.w, h: o.h };
+      if (dinoBox.x < obsBox.x + obsBox.w && dinoBox.x + dinoBox.w > obsBox.x &&
+          dinoBox.y < obsBox.y + obsBox.h && dinoBox.y + dinoBox.h > obsBox.y) {
+        return endGame();
+      }
+    }
+
+    gs.score += 0.3;
+    document.getElementById('gameScore').textContent = 'Pontos: ' + Math.floor(gs.score);
+  }
+
+  function endGame() {
+    var gs = gameState;
+    gs.running = false;
+    gs.gameOver = true;
+    var finalScore = Math.floor(gs.score);
+    if (finalScore > state.highScore) {
+      state.highScore = finalScore;
+      save();
+    }
+    document.getElementById('gameHighScore').textContent = 'Recorde: ' + state.highScore;
+    drawGame();
+    stopGameLoop();
+  }
+
+  function drawGame() {
+    var gs = gameState;
+    var ctx = gameCtx;
+    var w = gameCanvas.width, h = gameCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.strokeStyle = '#c3d5e2';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, gs.groundY + 2);
+    ctx.lineTo(w, gs.groundY + 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#4ecb71';
+    gs.obstacles.forEach(function (o) {
+      ctx.fillRect(o.x, gs.groundY - o.h, o.w, o.h);
+    });
+
+    drawDinoSprite(ctx, gs.dinoX, gs.dinoY, gs.frame);
+
+    if (gs.gameOver) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#0d8fd0';
+      ctx.font = 'bold 22px Trebuchet MS, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Fim de jogo! Pontos: ' + Math.floor(gs.score), w / 2, h / 2 - 10);
+      ctx.font = '16px Trebuchet MS, sans-serif';
+      ctx.fillText('Aperte "Jogar de novo" para tentar de novo', w / 2, h / 2 + 20);
+    }
+  }
+
+  function drawDinoSprite(ctx, x, y, frame) {
+    var legPhase = Math.floor(frame / 6) % 2;
+    ctx.fillStyle = '#eef5fb';
+    ctx.strokeStyle = '#c3d5e2';
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.ellipse(x + 17, y - 22, 15, 18, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    ctx.beginPath();
+    ctx.ellipse(x + 4, y - 34, 9, 8, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = '#2b3a4a';
+    ctx.beginPath();
+    ctx.arc(x + 2, y - 36, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#17aef2';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + 6, y - 42);
+    ctx.quadraticCurveTo(x + 20, y - 40, x + 28, y - 20);
+    ctx.stroke();
+
+    ctx.fillStyle = '#eef5fb';
+    ctx.strokeStyle = '#c3d5e2';
+    ctx.lineWidth = 2;
+    if (legPhase === 0) {
+      ctx.fillRect(x + 8, y - 8, 7, 10);
+      ctx.strokeRect(x + 8, y - 8, 7, 10);
+      ctx.fillRect(x + 20, y - 12, 7, 14);
+      ctx.strokeRect(x + 20, y - 12, 7, 14);
+    } else {
+      ctx.fillRect(x + 8, y - 12, 7, 14);
+      ctx.strokeRect(x + 8, y - 12, 7, 14);
+      ctx.fillRect(x + 20, y - 8, 7, 10);
+      ctx.strokeRect(x + 20, y - 8, 7, 10);
     }
   }
 })();
