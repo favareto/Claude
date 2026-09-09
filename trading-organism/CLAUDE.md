@@ -59,10 +59,41 @@ até 500 estratégias ativas (`leaderboard.py` — ver Estrategista abaixo);
 uma estratégia melhor pode sobrepor (substituir) uma pior quando o ranking
 está cheio.
 
+**Pesquisa contínua de verdade — `investigator_research.py`.** Script
+SEPARADO (não roda dentro do processo do Organism): chama a API da
+Anthropic com a ferramenta de busca web habilitada, pede uma estratégia
+atual e estruturada, e grava o resultado em `data/strategy_feed/*.json`.
+Uso: `export ANTHROPIC_API_KEY=... && python -m darwin_agent.investigator_research --loop`
+(roda pra sempre, uma rodada a cada `--interval` segundos — padrão 1800 =
+30min; ou agendar via cron/GitHub Actions chamando sem `--loop`). O
+processo principal (`Organism.poll_strategy_feed`, iniciado junto com
+`run_forever` em `main.py`) observa esse diretório e injeta cada proposta
+nova automaticamente — pesquisa (lenta, externa, precisa de API key) fica
+desacoplada do loop de trading (rápido, sempre rodando). Testado offline
+de ponta a ponta: escrevi um arquivo de proposta manualmente no diretório
+e confirmei que o `Organism` detectou e fez nascer o robô certo — não
+testei a chamada real à API (sem chave configurada neste ambiente de
+desenvolvimento), mas o parser da resposta (`parse_proposal`) foi testado
+com respostas limpas, com texto extra ao redor do JSON, e com campos
+inválidos.
+
 ### 2. Professor
 Recebe o material do Investigador e monta o "currículo" de ensino — mas
 personalizado por robô/ativo, não uma regra genérica pra todos. Ensina o
 robô a aplicar (e adaptar) a estratégia no ativo em que ele é especialista.
+
+Implementado em `professor.py: Professor.build_curriculum(proposal, symbol)`
+— pega os `params` que o Investigador trouxe (se algum) e AJUSTA pro ativo
+específico: ativos "major" (BTC, ETH...) usam os parâmetros como vieram;
+ativos mais ruidosos ("alt") ganham indicadores um pouco mais lentos e
+stops mais largos por padrão (só preenche o que o Investigador não
+especificou — a proposta original sempre tem prioridade). Se há candles
+reais disponíveis, afina ainda mais pela volatilidade medida. O currículo
+resultante vira `StrategyProposal`/robô com uma instância PARAMETRIZADA da
+estratégia (`strategies/base.py: STRATEGY_CLASSES` + `Strategy.params`/
+`Strategy.p()`) — não é mais só 4 comportamentos fixos, é 4 motores
+configuráveis por proposta. Um clone herda o currículo do pai (mesmos
+`params`) — clonagem literal.
 
 ### 3. Estrategista
 Gatekeeper em duas camadas, com **autonomia real pra reprovar qualquer
@@ -150,8 +181,18 @@ estratégia usada. Também só lê o estado do Macro-organismo.
   robô já alcançou (drawdown desde o topo, não desde o valor atual), o
   robô é fechado/removido.
 - **Sem limite** de multiplicação — a intenção é crescimento exponencial.
-- Auto-otimização = o próprio evento de clonagem (não há ajuste de
-  parâmetro "por fora" disso, por enquanto).
+  Não existe (e não deve ser adicionado) nenhum teto de população/clones em
+  lugar nenhum do código — nem `Organism`, nem `DarwinAgentV2`. Boas
+  estratégias **têm que rentabilizar** (clonar sem parar, geração após
+  geração); as ruins são simplesmente **demitidas** (eliminadas em -60% do
+  pico) — a seleção é só isso, nunca um limite artificial. Validado:
+  forçando 4 gerações seguidas de +70%, a população cresce 1→2→4→8→16 sem
+  nenhum teto interferir; uma estratégia perdedora é eliminada normalmente
+  no mesmo teste.
+- Auto-otimização = o próprio evento de clonagem/eliminação — reforçado
+  agora pelo ranking de estratégias (`leaderboard.py`) e pelo currículo do
+  Professor (`professor.py`), mas a régua final de quem sobrevive continua
+  sendo só isso: rentabiliza e clona, ou não rentabiliza e é demitido.
 
 ## Fluxo de decisão (por robô, a cada candle/tick)
 
@@ -221,8 +262,9 @@ A documentação de arquitetura original dos autores está preservada em
 | Clonagem em +70%, clone nasce com $5, original NÃO reseta | Não existia (só herança de DNA pra próxima geração, sequencial) | **Feito** — `core/agent_v2.py: _check_clone()`: marco de clonagem por robô, clone nasce com `starting_capital`, original segue com saldo cheio e ganha novo marco. O clone herda o cérebro (Q-learning) do pai via `inherit_brain_from()` — clonagem literal, sem mutação (auto-otimização = o próprio evento de clonar) |
 | Sem limite de multiplicação, população cresce | Não (era sempre 1 agente vivo) | **Feito** — `organism.py: Organism`: cada clone vira uma nova `asyncio.Task`, sem teto |
 | Macro-organismo (fonte única de verdade) | Não | **Feito** — `organism.py`: registro central de todos os robôs (vivos e mortos), persistido em `data/population.json` |
-| Investigador (fluxo contínuo de pesquisa, NÃO um catálogo fixo) | Não | **Esqueleto feito** — `investigator.py: Investigador` é uma fila (`ingest`/`next_new`), não uma lista fixa. Hoje populada manualmente por `bootstrap_feed()` com 3 estratégias já pesquisadas de verdade (momentum/EMA, mean_reversion/Bollinger, scalping/VWAP — fontes reais no código); falta virar script de pesquisa contínua de verdade (LLM + busca web, cron/GitHub Actions, como descrito no CLAUDE.md) |
-| Professor (currículo por robô/ativo) | Não | **Pendente** — construir como sub-agente novo |
+| Investigador (fluxo contínuo de pesquisa, NÃO um catálogo fixo) | Não | **Feito** — `investigator.py: Investigador` é uma fila (`ingest`/`next_new`); `bootstrap_feed()` continua como ponto de partida pra dev/simulação (4 estratégias reais). **Pesquisa contínua de verdade**: `investigator_research.py` — script separado, chama a API da Anthropic com busca web, grava propostas em `data/strategy_feed/`; `Organism.poll_strategy_feed()` absorve automaticamente. Testado offline de ponta a ponta (arquivo → robô nascido); parser de resposta testado com casos limpo/sujo/inválido — chamada real à API não testada (sem chave neste ambiente) |
+| Professor (currículo por robô/ativo) | Não | **Feito** — `professor.py: Professor.build_curriculum()`. Ajusta os parâmetros da estratégia pro ativo específico (major vs. alt, e por volatilidade medida quando há candles). Testado: dois robôs com a mesma proposta em BTCUSDT vs. DOGEUSDT recebem currículos diferentes; clone herda o currículo idêntico do pai |
+| Parametrização fina por proposta (EMA 9/21 vs 12/26 etc, não só 4 comportamentos fixos) | Não (períodos de indicador hardcoded em cada estratégia) | **Feito** — `strategies/base.py`: `Strategy.__init__(params)` + `Strategy.p(key, default)`; as 4 classes (`MomentumStrategy`, `MeanReversionStrategy`, `ScalpingStrategy`, `BreakoutStrategy`) agora leem período de EMA/RSI/ATR/Bollinger, multiplicadores de stop/TP, etc. dos `params` em vez de literais fixos (comportamento idêntico ao original quando `params` está vazio). `STRATEGY_CLASSES` permite instanciar uma cópia nova e parametrizada por robô (`core/agent_v2.py` troca a entrada do `AdaptiveSelector` correspondente à `strategy_name` do robô) |
 | Estrategista (2 camadas, com autonomia real de veto) | Parcial (só `RiskManager.approve_trade`, sem camada 1) | **Feito** — `strategist.py: Strategist`, serviço único compartilhado por toda a população. Camada 2 (`validate_entry`, cada sinal) reaproveita `RiskManager`. Camada 1: `validate_strategy` (sanidade genérica) + `validate_proposal` (schema + **veto por histórico real**: `TrackRecord` conta tentativas/mortes por combinação estratégia+ativo, calculado por `Organism._track_record`; ≥75% de morte com ≥3 tentativas = recusa, mesmo com schema perfeito). Validado: 3 mortes seguidas em momentum/BTCUSDT → 4ª tentativa recusada; mesma estratégia em ETHUSDT (histórico limpo) → aprovada normalmente |
 | Nasce 1 boneco novo por proposta aprovada | Não existia esse fluxo | **Feito** — `organism.py: Organism.propose_and_spawn()`: Investigador traz proposta → Estrategista valida → se aprovada, nasce exatamente 1 avatar; se recusada, nenhum. Robô fica travado na estratégia com que nasceu (`ml/brain.py: SingleStrategyBrain` — restringe o espaço de ação do Q-learning a `[estratégia, hold]`, nunca migra pra outra) |
 | Agente-robô opera só 1 ativo + 1 estratégia + 1 timeframe | Não (varria uma watchlist de até 10 símbolos, todas as 4 estratégias, timeframe global fixo) | **Feito** — `AgentConfig.symbol`/`scan_timeframe` atribuídos pelo `Organism` no nascimento a partir da proposta; `SingleStrategyBrain` trava a estratégia |
@@ -272,14 +314,28 @@ A documentação de arquitetura original dos autores está preservada em
    promove a estratégia no ranking (score sobe), morte rebaixa (score
    desce), ranking cheio só aceita entrada nova se ela superar a pior
    colocada.
-8. Investigador de verdade: virar script de pesquisa CONTÍNUA de verdade
-   (LLM + busca web, cron/GitHub Actions, a cada ~30min) em vez de
-   `bootstrap_feed()` manual. Construir o Professor (currículo por
-   robô/ativo) e evoluir o julgamento do Estrategista pra um agente/LLM com
-   mais nuance (hoje é regra de threshold). Parametrização fina por
-   proposta (`StrategyProposal.params` já existe no schema, mas as 4
-   implementações em `strategies/base.py` ainda têm indicadores
-   hardcoded — EMA 9/21 fixo, não configurável por proposta). Refazer
-   `dashboard.py` e a visualização 2D lendo `data/population.json`; depois
-   testar contra a Bybit testnet de verdade
-   (`python -m darwin_agent --universe 1000 --roots 5`).
+8. ~~Investigador de pesquisa CONTÍNUA de verdade (script separado, LLM +
+   busca web, a cada ~30min); Professor (currículo por robô/ativo);
+   parametrização fina por proposta (não só 4 comportamentos fixos).~~
+   Feito — `investigator_research.py` (script separado, `--loop`
+   embutido ou cron/GitHub Actions, grava em `data/strategy_feed/`) +
+   `Organism.poll_strategy_feed()` (absorve automaticamente, iniciado
+   junto com `main.py run_forever`). `professor.py: Professor` monta o
+   currículo por (proposta, ativo). `strategies/base.py`: as 4 estratégias
+   agora leem parâmetros de indicador/stop via `Strategy.params`/`.p()`
+   em vez de literais fixos — cada proposta pode ser genuinamente
+   diferente, não só 4 comportamentos hardcoded. Testado offline de ponta
+   a ponta (arquivo de proposta → robô nascido com o currículo certo);
+   chamada real à API da Anthropic não testada nesta sessão (sem
+   `ANTHROPIC_API_KEY` configurada aqui).
+9. **Reforçado e validado nesta rodada**: não existe (nem deve existir)
+   nenhum teto de multiplicação — testado forçando 4 gerações seguidas de
+   clonagem (1→2→4→8→16 robôs) e confirmando que uma estratégia perdedora
+   é eliminada normalmente no mesmo cenário.
+10. Evoluir o julgamento do Estrategista (hoje é regra de threshold) e a
+    camada 1 pra um agente/LLM com mais nuance. Refazer `dashboard.py` e a
+    visualização 2D lendo `data/population.json`. Testar contra a Bybit
+    testnet de verdade
+    (`python -m darwin_agent --universe 1000 --roots 5`), incluindo
+    `investigator_research.py --loop` rodando em paralelo com uma
+    `ANTHROPIC_API_KEY` de verdade.

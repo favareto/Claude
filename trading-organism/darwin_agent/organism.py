@@ -22,6 +22,7 @@ from typing import Callable, Dict, List, Optional
 
 from darwin_agent.core.agent_v2 import DarwinAgentV2
 from darwin_agent.investigator import StrategyProposal
+from darwin_agent.professor import Professor
 from darwin_agent.strategist import Strategist, TrackRecord
 from darwin_agent.utils.config import AgentConfig
 
@@ -60,6 +61,7 @@ class RobotRecord:
     strategy_source: str = ""
     strategy_id: str = ""
     timeframe: str = ""
+    strategy_params: dict = field(default_factory=dict)
 
 
 class Organism:
@@ -71,6 +73,7 @@ class Organism:
         self.symbols = symbols
         self._next_symbol_idx = 0
         self.strategist = Strategist(base_config.risk)
+        self.professor = Professor()
         self._real_adapter_factory = real_adapter_factory
         self.state_file = state_file
         self.heartbeat_by_timeframe = heartbeat_by_timeframe
@@ -146,16 +149,22 @@ class Organism:
         if not ok:
             return None, reason
 
+        # Professor monta o currículo: pega a estratégia genérica e adapta
+        # os parâmetros pro ativo específico deste robô (ver professor.py).
+        curriculum = self.professor.build_curriculum(proposal, symbol)
+
         robot_id = f"r-{uuid.uuid4().hex[:8]}"
         await self._spawn(robot_id, symbol, proposal.implementation, parent=None,
                           strategy_source=f"{proposal.name} — {proposal.source}",
-                          strategy_id=proposal.strategy_id, timeframe=proposal.timeframe)
+                          strategy_id=proposal.strategy_id, timeframe=proposal.timeframe,
+                          strategy_params=curriculum)
         self.strategist.register_strategy_attempt(proposal.strategy_id)
         return robot_id, f"{admit_reason} | {reason}"
 
     async def _spawn(self, robot_id: str, symbol: str, strategy_name: str,
                      parent: Optional[DarwinAgentV2], strategy_source: str = "",
-                     strategy_id: str = "", timeframe: str = "15m"):
+                     strategy_id: str = "", timeframe: str = "15m",
+                     strategy_params: Optional[dict] = None):
         cfg = self._new_config(symbol, timeframe)
         agent = DarwinAgentV2(
             config=cfg,
@@ -163,6 +172,7 @@ class Organism:
             robot_id=robot_id,
             strategist=self.strategist,
             parent_id=parent.robot_id if parent else None,
+            strategy_params=strategy_params,
             on_clone=self._handle_clone,
             on_death=self._handle_death,
             real_adapter_factory=self._real_adapter_factory,
@@ -178,7 +188,7 @@ class Organism:
                 born_at=_utcnow().isoformat(),
                 capital=cfg.starting_capital, peak_capital=cfg.starting_capital,
                 strategy_source=strategy_source, strategy_id=strategy_id,
-                timeframe=timeframe,
+                timeframe=timeframe, strategy_params=strategy_params or {},
             )
             self.tasks[robot_id] = asyncio.create_task(agent.run())
         self._save_state()
@@ -189,7 +199,8 @@ class Organism:
         await self._spawn(clone_id, parent.symbol, parent.strategy_name, parent,
                           strategy_source=parent_rec.strategy_source if parent_rec else "",
                           strategy_id=parent_rec.strategy_id if parent_rec else "",
-                          timeframe=parent_rec.timeframe if parent_rec else "15m")
+                          timeframe=parent_rec.timeframe if parent_rec else "15m",
+                          strategy_params=parent.strategy_params)
         # Clonagem (+70%) é o sinal de sucesso — promove a estratégia no ranking.
         if parent_rec and parent_rec.strategy_id:
             self.strategist.promote_strategy(parent_rec.strategy_id)
@@ -281,3 +292,31 @@ class Organism:
             task.cancel()
         if self.tasks:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
+
+    async def poll_strategy_feed(self, feed_dir: str = "data/strategy_feed",
+                                 interval: float = 30.0):
+        """Roda pra sempre (chamar como task em paralelo com run_until).
+        Observa `feed_dir` — onde `investigator_research.py` (script
+        separado, pesquisa contínua de verdade via API da Anthropic + busca
+        web) grava propostas novas — e injeta cada arquivo novo na
+        população via `propose_and_spawn`. É assim que a pesquisa (lenta,
+        externa) fica desacoplada do loop de trading (rápido, contínuo)."""
+        processed = set()
+        os.makedirs(feed_dir, exist_ok=True)
+        while True:
+            for fname in sorted(os.listdir(feed_dir)):
+                if not fname.endswith(".json") or fname in processed:
+                    continue
+                processed.add(fname)
+                path = os.path.join(feed_dir, fname)
+                try:
+                    with open(path) as f:
+                        data = json.load(f)
+                    proposal = StrategyProposal(**data)
+                except Exception as e:
+                    print(f"[Investigador] '{fname}' inválido, ignorando: {e}")
+                    continue
+                symbol = proposal.asset_hint or self._pick_symbol()
+                robot_id, reason = await self.propose_and_spawn(proposal, symbol=symbol)
+                print(f"[Investigador] '{proposal.name}' -> {reason}")
+            await asyncio.sleep(interval)

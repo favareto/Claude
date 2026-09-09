@@ -17,7 +17,7 @@ from typing import Callable, Dict, List, Optional
 from darwin_agent.core.health import HealthSystem, HealthStatus
 from darwin_agent.markets.base import MarketAdapter, TimeFrame, OrderSide, OrderType
 from darwin_agent.markets.crypto import BybitAdapter, PaperTradingAdapter
-from darwin_agent.strategies.base import STRATEGY_REGISTRY
+from darwin_agent.strategies.base import STRATEGY_CLASSES, STRATEGY_REGISTRY
 from darwin_agent.strategist import Strategist
 from darwin_agent.ml.brain import SingleStrategyBrain
 from darwin_agent.ml.features import N_FEATURES
@@ -40,6 +40,7 @@ class DarwinAgentV2:
                  robot_id: Optional[str] = None,
                  strategist: Optional[Strategist] = None,
                  parent_id: Optional[str] = None,
+                 strategy_params: Optional[dict] = None,
                  on_clone: Optional[Callable] = None,
                  on_death: Optional[Callable] = None,
                  real_adapter_factory: Optional[Callable[[dict], MarketAdapter]] = None):
@@ -53,6 +54,9 @@ class DarwinAgentV2:
         self.parent_id = parent_id
         self.symbol = config.symbol
         self.strategy_name = strategy_name
+        # Currículo do Professor (professor.py) — parâmetros do robô
+        # ajustados pro ativo específico. Vazio = defaults da estratégia.
+        self.strategy_params = strategy_params or {}
         self.strategist = strategist or Strategist(config.risk)
         self.on_clone = on_clone
         self.on_death = on_death
@@ -72,6 +76,11 @@ class DarwinAgentV2:
         # têm o mesmo formato.
         self.brain = SingleStrategyBrain(strategy_name, n_features=N_FEATURES, epsilon=0.3)
         self.selector = AdaptiveSelector(self.brain)
+        if self.strategy_params:
+            # Substitui a instância genérica pela parametrizada (currículo
+            # do Professor) — só a entrada da estratégia deste robô, já que
+            # o SingleStrategyBrain nunca escolhe outra.
+            self.selector.strategies[strategy_name] = STRATEGY_CLASSES[strategy_name](params=self.strategy_params)
 
         self.markets: Dict[str, MarketAdapter] = {}
         self.phase = AgentPhase.LIVE
@@ -418,6 +427,7 @@ class DarwinAgentV2:
             "parent_id": self.parent_id,
             "symbol": self.symbol,
             "strategy_name": self.strategy_name,
+            "strategy_params": self.strategy_params,
             "phase": self.phase.value,
             "health": self.health.get_vitals(),
             "clones_generated": self.clones_generated,

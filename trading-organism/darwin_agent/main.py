@@ -72,7 +72,15 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
         else:
             print(f"  ⛔ Estrategista recusou '{proposal.name}' em {symbol}: {reason}")
 
+    # Absorve pesquisas novas de investigator_research.py (script separado,
+    # cron/GitHub Actions) automaticamente, sem precisar reiniciar o processo.
+    feed_task = asyncio.create_task(organism.poll_strategy_feed())
+
     print(f"\n  População rodando (paper trading). Estado em: {organism.state_file}")
+    print(f"  Investigador contínuo: rode `python -m darwin_agent.investigator_research --loop` "
+          f"em paralelo (grava em data/strategy_feed/, absorvido automaticamente).")
+    print("  Não há teto de multiplicação — estratégias boas se multiplicam sem limite; "
+          "as ruins são eliminadas (ver CLAUDE.md).")
     print("  Ctrl+C para parar.\n")
 
     try:
@@ -80,6 +88,7 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
     finally:
+        feed_task.cancel()
         await organism.shutdown()
     print("\n🏁 População extinta ou encerrada.")
 

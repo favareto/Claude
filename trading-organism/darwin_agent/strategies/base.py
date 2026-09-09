@@ -14,9 +14,16 @@ import math
 
 
 class Strategy(ABC):
-    def __init__(self, name: str, description: str):
+    def __init__(self, name: str, description: str, params: Optional[Dict[str, Any]] = None):
         self.name = name
         self.description = description
+        # Parametrização por proposta (Investigador/Professor) — ver
+        # investigator.py: StrategyProposal.params, professor.py. Quando
+        # vazio, cada subclasse usa os defaults originais abaixo.
+        self.params: Dict[str, Any] = params or {}
+
+    def p(self, key: str, default):
+        return self.params.get(key, default)
 
     @abstractmethod
     def analyze(self, candles: List[Candle], symbol: str,
@@ -102,8 +109,8 @@ class Strategy(ABC):
 
 
 class MomentumStrategy(Strategy):
-    def __init__(self):
-        super().__init__("momentum", "EMA crossover + RSI confirmation + adaptive volume filter")
+    def __init__(self, params: Optional[Dict[str, Any]] = None):
+        super().__init__("momentum", "EMA crossover + RSI confirmation + adaptive volume filter", params)
 
     def analyze(self, candles: List[Candle], symbol: str,
                 timeframe: TimeFrame) -> Optional[MarketSignal]:
@@ -111,10 +118,10 @@ class MomentumStrategy(Strategy):
             return None
         closes = [c.close for c in candles]
         volumes = [c.volume for c in candles]
-        fast = self.ema(closes, 9)
-        slow = self.ema(closes, 21)
-        rsi_vals = self.rsi(closes, 14)
-        atr_vals = self.atr(candles, 14)
+        fast = self.ema(closes, self.p("ema_fast", 9))
+        slow = self.ema(closes, self.p("ema_slow", 21))
+        rsi_vals = self.rsi(closes, self.p("rsi_period", 14))
+        atr_vals = self.atr(candles, self.p("atr_period", 14))
 
         if not fast or not slow or not rsi_vals or not atr_vals:
             return None
@@ -127,6 +134,8 @@ class MomentumStrategy(Strategy):
         avg_vol = sum(volumes[-20:]) / min(20, len(volumes))
         vol_threshold = self._adaptive_vol_threshold(volumes)
         vol_ok = volumes[-1] > avg_vol * vol_threshold
+        atr_stop_mult = self.p("atr_stop_mult", 2)
+        atr_tp_mult = self.p("atr_tp_mult", 3)
 
         # Bullish
         bull_cross = pf <= ps and cf > cs
@@ -139,7 +148,7 @@ class MomentumStrategy(Strategy):
             return MarketSignal(
                 symbol=symbol, side=OrderSide.BUY, strategy=self.name,
                 confidence=min(0.95, conf), entry_price=price,
-                stop_loss=price - cur_atr * 2, take_profit=price + cur_atr * 3,
+                stop_loss=price - cur_atr * atr_stop_mult, take_profit=price + cur_atr * atr_tp_mult,
                 timeframe=timeframe,
                 reason=f"Bull momentum RSI:{cur_rsi:.0f} cross:{bull_cross}",
             )
@@ -155,7 +164,7 @@ class MomentumStrategy(Strategy):
             return MarketSignal(
                 symbol=symbol, side=OrderSide.SELL, strategy=self.name,
                 confidence=min(0.95, conf), entry_price=price,
-                stop_loss=price + cur_atr * 2, take_profit=price - cur_atr * 3,
+                stop_loss=price + cur_atr * atr_stop_mult, take_profit=price - cur_atr * atr_tp_mult,
                 timeframe=timeframe,
                 reason=f"Bear momentum RSI:{cur_rsi:.0f} cross:{bear_cross}",
             )
@@ -163,8 +172,8 @@ class MomentumStrategy(Strategy):
 
 
 class MeanReversionStrategy(Strategy):
-    def __init__(self):
-        super().__init__("mean_reversion", "Bollinger Band bounces + adaptive RSI thresholds")
+    def __init__(self, params: Optional[Dict[str, Any]] = None):
+        super().__init__("mean_reversion", "Bollinger Band bounces + adaptive RSI thresholds", params)
 
     def analyze(self, candles: List[Candle], symbol: str,
                 timeframe: TimeFrame) -> Optional[MarketSignal]:
@@ -172,9 +181,10 @@ class MeanReversionStrategy(Strategy):
             return None
         closes = [c.close for c in candles]
         price = closes[-1]
-        upper, mid, lower = self.bollinger(closes, 20, 2.0)
-        rsi_vals = self.rsi(closes, 14)
-        atr_vals = self.atr(candles)
+        upper, mid, lower = self.bollinger(closes, self.p("bb_period", 20), self.p("bb_std", 2.0))
+        rsi_vals = self.rsi(closes, self.p("rsi_period", 14))
+        atr_vals = self.atr(candles, self.p("atr_period", 14))
+        atr_stop_mult = self.p("atr_stop_mult", 1.5)
 
         if not upper or not rsi_vals or not atr_vals:
             return None
@@ -201,7 +211,7 @@ class MeanReversionStrategy(Strategy):
             return MarketSignal(
                 symbol=symbol, side=OrderSide.BUY, strategy=self.name,
                 confidence=min(0.9, conf), entry_price=price,
-                stop_loss=price - cur_atr * 1.5, take_profit=mid[-1],
+                stop_loss=price - cur_atr * atr_stop_mult, take_profit=mid[-1],
                 timeframe=timeframe,
                 reason=f"Oversold RSI:{cur_rsi:.0f}<{oversold_threshold} below BB",
             )
@@ -213,7 +223,7 @@ class MeanReversionStrategy(Strategy):
             return MarketSignal(
                 symbol=symbol, side=OrderSide.SELL, strategy=self.name,
                 confidence=min(0.9, conf), entry_price=price,
-                stop_loss=price + cur_atr * 1.5, take_profit=mid[-1],
+                stop_loss=price + cur_atr * atr_stop_mult, take_profit=mid[-1],
                 timeframe=timeframe,
                 reason=f"Overbought RSI:{cur_rsi:.0f}>{overbought_threshold} above BB",
             )
@@ -221,8 +231,8 @@ class MeanReversionStrategy(Strategy):
 
 
 class ScalpingStrategy(Strategy):
-    def __init__(self):
-        super().__init__("scalping", "Quick micro-profit: VWAP proximity OR engulfing pattern")
+    def __init__(self, params: Optional[Dict[str, Any]] = None):
+        super().__init__("scalping", "Quick micro-profit: VWAP proximity OR engulfing pattern", params)
 
     def analyze(self, candles: List[Candle], symbol: str,
                 timeframe: TimeFrame) -> Optional[MarketSignal]:
@@ -230,13 +240,14 @@ class ScalpingStrategy(Strategy):
             return None
         closes = [c.close for c in candles]
         price = closes[-1]
-        atr_vals = self.atr(candles, 10)
+        atr_vals = self.atr(candles, self.p("atr_period", 10))
         if not atr_vals:
             return None
         cur_atr = atr_vals[-1]
 
-        tp = [(c.high + c.low + c.close) / 3 for c in candles[-20:]]
-        vols = [c.volume for c in candles[-20:]]
+        vwap_window = self.p("vwap_window", 20)
+        tp = [(c.high + c.low + c.close) / 3 for c in candles[-vwap_window:]]
+        vols = [c.volume for c in candles[-vwap_window:]]
         total_vol = sum(vols)
         if total_vol == 0:
             return None
@@ -249,8 +260,8 @@ class ScalpingStrategy(Strategy):
                     curr.close < prev.open and curr.open > prev.close)
 
         # OR logic: VWAP proximity or engulfing, with confidence adjusted
-        vwap_bull = price < vwap * 0.999
-        vwap_bear = price > vwap * 1.001
+        vwap_bull = price < vwap * self.p("vwap_bull_threshold", 0.999)
+        vwap_bear = price > vwap * self.p("vwap_bear_threshold", 1.001)
 
         if vwap_bull and bull_eng:
             return MarketSignal(
@@ -302,8 +313,8 @@ class ScalpingStrategy(Strategy):
 class BreakoutStrategy(Strategy):
     """Breakout strategy — trades range breaks with volume confirmation."""
 
-    def __init__(self):
-        super().__init__("breakout", "Range breakout with volume surge + adaptive range")
+    def __init__(self, params: Optional[Dict[str, Any]] = None):
+        super().__init__("breakout", "Range breakout with volume surge + adaptive range", params)
 
     def analyze(self, candles: List[Candle], symbol: str,
                 timeframe: TimeFrame) -> Optional[MarketSignal]:
@@ -314,20 +325,20 @@ class BreakoutStrategy(Strategy):
         lows = [c.low for c in candles]
         volumes = [c.volume for c in candles]
         price = closes[-1]
-        atr_vals = self.atr(candles, 14)
+        atr_vals = self.atr(candles, self.p("atr_period", 14))
         if not atr_vals:
             return None
         cur_atr = atr_vals[-1]
 
-        # Adaptive range lookback based on timeframe
-        lookback = self._range_lookback(timeframe)
+        # Lookback: override explícito da proposta, senão adaptativo por timeframe
+        lookback = self.p("lookback", None) or self._range_lookback(timeframe)
         if len(highs) < lookback + 1:
             lookback = min(20, len(highs) - 1)
 
         range_high = max(highs[-(lookback + 1):-1])
         range_low = min(lows[-(lookback + 1):-1])
         avg_vol = sum(volumes[-20:]) / 20
-        vol_surge = volumes[-1] > avg_vol * 1.5
+        vol_surge = volumes[-1] > avg_vol * self.p("vol_surge_mult", 1.5)
 
         # Bullish breakout
         if price > range_high and vol_surge:
@@ -368,6 +379,7 @@ class BreakoutStrategy(Strategy):
             TimeFrame.H1: 24,    # 1 day
             TimeFrame.H4: 30,    # 5 days
             TimeFrame.D1: 20,    # 20 days
+            TimeFrame.W1: 12,    # ~3 meses
         }
         return lookbacks.get(timeframe, 20)
 
@@ -377,4 +389,14 @@ STRATEGY_REGISTRY: Dict[str, Strategy] = {
     "mean_reversion": MeanReversionStrategy(),
     "scalping": ScalpingStrategy(),
     "breakout": BreakoutStrategy(),
+}
+
+# Classes (não instâncias) — pra construir uma cópia PARAMETRIZADA por
+# proposta/robô (ver professor.py, core/agent_v2.py). STRATEGY_REGISTRY
+# acima continua existindo com defaults, pra uso genérico/manual.
+STRATEGY_CLASSES: Dict[str, type] = {
+    "momentum": MomentumStrategy,
+    "mean_reversion": MeanReversionStrategy,
+    "scalping": ScalpingStrategy,
+    "breakout": BreakoutStrategy,
 }
