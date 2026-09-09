@@ -249,6 +249,12 @@ class DarwinAgentV2:
                 if close:
                     result = await adapter.close_position(pos)
                     if result.success:
+                        self.logger.position_closed(
+                            symbol=pos.symbol, side=pos.side.value, quantity=pos.quantity,
+                            entry_price=pos.entry_price, entry_time=pos.opened_at,
+                            exit_price=result.price, exit_time=result.timestamp,
+                            pnl=pos.pnl, pnl_pct=pos.pnl_pct, strategy=self.strategy_name,
+                        )
                         self._process_result(pos.pnl, pos.pnl_pct, pos.symbol)
                         closed_any = True
             except Exception as e:

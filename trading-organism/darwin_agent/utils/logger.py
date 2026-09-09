@@ -48,6 +48,7 @@ class DarwinLogger:
     def trade(self, action: str, market: str, symbol: str, amount: float,
               price: float, reason: str, result: Optional[dict] = None):
         entry = {
+            "type": "entry",
             "ts": datetime.now(timezone.utc).isoformat(),
             "robot": self.label,
             "action": action,
@@ -58,13 +59,52 @@ class DarwinLogger:
             "reason": reason,
             "result": result
         }
-        try:
-            with open(self.trade_journal, "a") as f:
-                f.write(json.dumps(entry) + "\n")
-        except Exception:
-            pass
+        self._append_journal(entry)
         side = "BUY" if action == "BUY" else "SELL"
         self.logger.info(f"{side} {symbol} x{amount:.6f} @ ${price:.4f} | {reason}")
+
+    def position_closed(self, symbol: str, side: str, quantity: float,
+                        entry_price: float, entry_time, exit_price: float, exit_time,
+                        pnl: float, pnl_pct: float, strategy: str = ""):
+        """Registro de posição completa (entrada + saída) — o que o painel
+        de apurações usa pra mostrar hora de entrada/saída, lado, e P&L de
+        cada operação fechada. `entry_time`/`exit_time` aceitam datetime ou
+        string ISO."""
+        entry_iso = entry_time.isoformat() if hasattr(entry_time, "isoformat") else str(entry_time)
+        exit_iso = exit_time.isoformat() if hasattr(exit_time, "isoformat") else str(exit_time)
+        try:
+            duration_seconds = (exit_time - entry_time).total_seconds() if hasattr(entry_time, "isoformat") else None
+        except Exception:
+            duration_seconds = None
+
+        record = {
+            "type": "position_closed",
+            "ts": exit_iso,
+            "robot": self.label,
+            "strategy": strategy,
+            "symbol": symbol,
+            "side": side,
+            "quantity": round(quantity, 6),
+            "entry_time": entry_iso,
+            "entry_price": round(entry_price, 6),
+            "exit_time": exit_iso,
+            "exit_price": round(exit_price, 6),
+            "duration_seconds": duration_seconds,
+            "pnl": round(pnl, 4),
+            "pnl_pct": round(pnl_pct, 4),
+        }
+        self._append_journal(record)
+        self.logger.info(
+            f"CLOSED {side.upper()} {symbol} entry@${entry_price:.4f} ({entry_iso[11:19]}) -> "
+            f"exit@${exit_price:.4f} ({exit_iso[11:19]}) | PnL: ${pnl:+.2f} ({pnl_pct:+.2f}%)"
+        )
+
+    def _append_journal(self, record: dict):
+        try:
+            with open(self.trade_journal, "a") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception:
+            pass
 
     def health_update(self, hp: float, change: float, reason: str):
         self.logger.info(f"HP: {hp:.1f}/100 ({change:+.1f}) | {reason}")

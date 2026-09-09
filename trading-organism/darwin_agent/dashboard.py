@@ -13,6 +13,7 @@ Uso: iniciado junto com `main.py run_forever` (mesma porta do
     python -c "import asyncio; from darwin_agent.dashboard import run_standalone; asyncio.run(run_standalone())"
 """
 
+import glob
 import json
 import os
 
@@ -28,6 +29,41 @@ _state_file = DEFAULT_STATE_FILE
 def set_state_file(path: str):
     global _state_file
     _state_file = path
+
+
+def _logs_dir() -> str:
+    # data/population.json -> data/logs (mesma raiz de dados)
+    return os.path.join(os.path.dirname(_state_file) or "data", "logs")
+
+
+async def handle_positions(req):
+    """Posições fechadas recentes de toda a população — hora de entrada,
+    lado (buy/sell), hora de saída, preços, P&L. Lê os arquivos
+    trades_<robot_id>.jsonl (um por robô, ver utils/logger.py). Em
+    populações muito grandes isto acaba precisando de índice/banco em vez
+    de varrer arquivo por arquivo — suficiente pra esta fase."""
+    limit = int(req.query.get("limit", "100"))
+    robot_filter = req.query.get("robot") or None
+    pattern = os.path.join(_logs_dir(), "trades_*.jsonl")
+    records = []
+    for path in glob.glob(pattern):
+        try:
+            with open(path) as f:
+                lines = f.readlines()[-300:]  # só as últimas por arquivo, não o journal inteiro
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("type") != "position_closed":
+                continue
+            if robot_filter and rec.get("robot") != robot_filter:
+                continue
+            records.append(rec)
+    records.sort(key=lambda r: r.get("exit_time") or r.get("ts") or "", reverse=True)
+    return web.json_response({"positions": records[:limit]})
 
 
 async def handle_state(req):
@@ -124,7 +160,15 @@ tbody tr:hover{background:#161c26}
 </table></div>
 </div>
 
-<div class="ft">Painel de apurações — só leitura. Fonte: <span class="mono">data/population.json</span>. Atualiza a cada 3s.</div>
+<div class="card">
+<h2><span>Posições — entrada e saída de cada operação</span><span class="mono" id="pos-count"></span></h2>
+<div class="tblwrap"><table>
+<thead><tr><th>Robô</th><th>Ativo</th><th>Lado</th><th>Entrada</th><th>Preço entrada</th><th>Saída</th><th>Preço saída</th><th>Duração</th><th>P&L</th></tr></thead>
+<tbody id="pos-body"></tbody>
+</table></div>
+</div>
+
+<div class="ft">Painel de apurações — só leitura. Fonte: <span class="mono">data/population.json</span> + <span class="mono">data/logs/trades_*.jsonl</span>. Atualiza a cada 3s.</div>
 </div>
 
 <script>
@@ -143,6 +187,43 @@ function fmtDuration(startIso, endIso){
 }
 function statusBadge(status){
   return status==='alive' ? '<span class="badge bg">vivo</span>' : '<span class="badge br">morto</span>';
+}
+function fmtTime(iso){
+  if(!iso) return '-';
+  const dt=new Date(iso);
+  return dt.toLocaleDateString()+' '+dt.toLocaleTimeString();
+}
+function fmtDurationSec(s){
+  if(s==null) return '-';
+  s=Math.max(0,Math.floor(s));
+  const h=Math.floor(s/3600); s-=h*3600;
+  const m=Math.floor(s/60); s-=m*60;
+  if(h>0) return h+'h '+m+'m';
+  if(m>0) return m+'m '+s+'s';
+  return s+'s';
+}
+
+async function tickPositions(){
+  try{
+    const r=await fetch('/api/positions?limit=60');
+    const d=await r.json();
+    const positions=d.positions||[];
+    document.getElementById('pos-count').textContent = positions.length+' recentes';
+    document.getElementById('pos-body').innerHTML = positions.length ? positions.map(p=>`
+      <tr>
+        <td class="mono">${esc(p.robot)}</td>
+        <td>${esc(p.symbol)}</td>
+        <td><span class="badge ${p.side==='buy'?'bg':'br'}">${esc((p.side||'').toUpperCase())}</span></td>
+        <td>${fmtTime(p.entry_time)}</td>
+        <td>$${(p.entry_price||0).toFixed(4)}</td>
+        <td>${fmtTime(p.exit_time)}</td>
+        <td>$${(p.exit_price||0).toFixed(4)}</td>
+        <td>${fmtDurationSec(p.duration_seconds)}</td>
+        <td class="${p.pnl>=0?'g':'r'}">${p.pnl>=0?'+':''}$${(p.pnl||0).toFixed(2)} (${p.pnl_pct>=0?'+':''}${(p.pnl_pct||0).toFixed(2)}%)</td>
+      </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhuma posição fechada ainda</td></tr>';
+  }catch(e){
+    // silencioso — a tabela de população já mostra o status de conexão
+  }
 }
 
 async function tick(){
@@ -200,6 +281,7 @@ async function tick(){
   }
 }
 tick(); setInterval(tick, 3000);
+tickPositions(); setInterval(tickPositions, 3000);
 </script>
 </body>
 </html>"""
@@ -211,6 +293,7 @@ def create_app():
     app = web.Application()
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/state", handle_state)
+    app.router.add_get("/api/positions", handle_positions)
     return app
 
 

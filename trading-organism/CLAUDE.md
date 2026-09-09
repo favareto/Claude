@@ -223,6 +223,19 @@ subi o servidor, e tirei um screenshot via Chromium headless confirmando
 que renderiza certo (hierarquia pai/filho, badges de status, cores por
 score/drawdown).
 
+**Posições (entrada/saída por operação)** — sem gráfico (decisão consciente:
+gráfico de preço pesa a operação sem necessidade agora). Cada posição
+fechada vira um registro completo em `data/logs/trades_<robot_id>.jsonl`
+(`utils/logger.py: DarwinLogger.position_closed()`): símbolo, lado
+(buy/sell), preço/hora de entrada, preço/hora de saída, duração, P&L. Uma
+tabela nova no painel (`/api/positions`) mostra isso pra toda a população,
+mais recente primeiro. Antes só a ENTRADA era logada; a saída não tinha
+registro nenhum — corrigido. Testado com uma operação real (abrir + fechar
+via `PaperTradingAdapter`) até aparecer certinho na tabela do painel.
+Nota de escala: a API varre todos os arquivos `trades_*.jsonl` a cada
+consulta — funciona bem nesta fase, mas com centenas de robôs vai precisar
+de índice/banco em vez de varrer arquivo por arquivo.
+
 ## Regras de vida do robô (fixas — não mudar sem avisar)
 
 - Capital inicial: **$5** — todo robô nasce com $5, seja ele raiz ou clone.
