@@ -179,10 +179,49 @@ desaparece da cena e passa a existir só como registro no painel de
 apurações.
 Lê o estado do Macro-organismo — não tem lógica de decisão nenhuma.
 
+**Conceito ampliado (discutido, ainda não construído):** escritório com
+hierarquia visível — robôs-trader sentados em mesas/computadores no chão
+do escritório; o Estrategista numa mesa/sala de supervisão (visão de
+"head de operações", mostrando o ranking); o Investigador numa mesa de
+pesquisa por perto; o Macro-organismo representado como a "sala da
+presidência"/painel central, com a visão consolidada de tudo.
+
+**Problema real de escala, sem resposta fácil ainda:** a população não tem
+teto (ver Regras de vida) — pode crescer pra centenas ou milhares de
+robôs. Um escritório literal com todo mundo visível numa tela só não
+escala visualmente passado umas poucas dezenas de bonequinhos. Não dá pra
+"escanear" (renderizar) a população inteira de uma vez de forma legível
+sem alguma estratégia de agregação — andares/salas por faixa de
+performance, uma visão de grade/heatmap pra escala + clique pra abrir o
+escritório individual, ou um teto de bonequinhos visíveis com o resto
+resumido num contador. Isso precisa de uma decisão de design antes de
+qualquer código de jogo — o painel de apurações (tabela, já pronto) não
+tem esse problema porque tabela escala por scroll/paginação, jogo com
+sprites não escala do mesmo jeito.
+
+Stack sugerida (ainda a mesma da concepção original, não mudou):
+Phaser.js + Tiled. É um projeto de verdade à parte (arte de sprite, mapa,
+lógica de câmera/interação) — maior que qualquer peça construída até
+agora nesta sessão.
+
 ### 7. Painel de apurações
 Dashboard com o histórico completo: todo robô que já existiu, pico de
 capital, causa da morte (drawdown) ou geração de clones, tempo de vida,
 estratégia usada. Também só lê o estado do Macro-organismo.
+
+**Feito** — `dashboard.py` reescrito do zero (a versão antiga assumia 1
+agente global, não fazia mais sentido). Web app em tempo real (aiohttp +
+HTML/JS puro, polling a cada 3s — não precisa de websocket, os heartbeats
+dos robôs já são de dezenas de segundos a horas): estatísticas gerais
+(vivos/total/capital/ranking), tabela do ranking de estratégias, e tabela
+com TODO robô que já existiu (pai, ativo, estratégia, timeframe, status,
+capital, pico, drawdown, trades, win rate, clones gerados, tempo de vida,
+causa da morte). Sobe automaticamente junto com `main.py run_forever` na
+porta `config.dashboard_port`; só leitura, sem lógica de decisão. Testado
+de verdade: gerei um `population.json` com clonagem em cadeia e uma morte,
+subi o servidor, e tirei um screenshot via Chromium headless confirmando
+que renderiza certo (hierarquia pai/filho, badges de status, cores por
+score/drawdown).
 
 ## Regras de vida do robô (fixas — não mudar sem avisar)
 
@@ -301,8 +340,8 @@ A documentação de arquitetura original dos autores está preservada em
 | Timeframe como parte da especialização (1min "diarista" convivendo com 1w "position") | Não (`scan_timeframe` era global, só até 1d) | **Feito** — `StrategyProposal.timeframe`, `TimeFrame.W1` adicionado, `Organism._new_config` aplica por robô; `heartbeat_by_timeframe=True` (main.py) escala o intervalo de checagem pelo timeframe (1min→30s, 1w→6h) — não faz sentido um robô semanal pollar toda hora |
 | Conexão com exchange / paper trading | Sim (Bybit testnet + paper) | Reaproveitado sem mudanças — `markets/crypto.py` |
 | Simulação pura (sem exchange, sem chaves) | Não | **Novo** — `markets/simulated.py: SimulatedMarketAdapter` (preços sintéticos), usado por `simulate.py` |
-| Visualização 2D estilo Tibia | Não (dashboard web simples) | **Pendente** — o `dashboard.py` antigo ainda assume 1 agente global; precisa ser refeito lendo `data/population.json` |
-| Painel de apurações | Parcial (`evolution/dna.py: create_death_report`, por geração/linhagem) | **Pendente** — hoje o histórico de mortos já fica em `Organism.records` / `population.json`; falta uma UI |
+| Visualização 2D estilo Tibia (bonequinhos, escritório) | Não (dashboard web simples) | **Pendente** — decisão de design em aberto (ver seção "Visualizador 2D" abaixo); painel de apurações (tabela) já cobre a parte de dados, o "jogo" em si ainda não foi construído |
+| Painel de apurações | Parcial (`evolution/dna.py: create_death_report`, por geração/linhagem) | **Feito** — `dashboard.py` reescrito, tempo real, lendo `data/population.json`. Testado com screenshot de verdade (Chromium headless) sobre dados com clonagem em cadeia e morte |
 
 ## Próximos passos sugeridos
 
@@ -373,10 +412,17 @@ A documentação de arquitetura original dos autores está preservada em
     offline: reject impede o nascimento, revise aplica os params
     sugeridos de verdade no robô, ausência de review dentro do prazo não
     trava o sistema.
-11. Evoluir o julgamento do Estrategista (hoje é regra de threshold +
-    pesquisa determinística) pra um agente/LLM com mais nuance ainda.
-    Refazer `dashboard.py` e a visualização 2D lendo `data/population.json`.
-    Testar contra a Bybit testnet de verdade
+11. ~~Painel de apurações lendo `data/population.json`.~~ Feito —
+    `dashboard.py` reescrito (tempo real, polling 3s), sobe junto com
+    `main.py run_forever`. Testado com screenshot de verdade sobre dados
+    reais (clonagem em cadeia + morte).
+12. Visualizador 2D (o "jogo" — escritório, bonequinhos, Estrategista/
+    Investigador/Macro-organismo como estações especiais): decisão de
+    design pendente sobre como lidar com escala (população sem teto vs.
+    tela renderizável) antes de escrever qualquer código — ver seção
+    "Visualizador" acima. Evoluir o julgamento do Estrategista (hoje é
+    regra de threshold + pesquisa determinística) pra um agente/LLM com
+    mais nuance ainda. Testar contra a Bybit testnet de verdade
     (`python -m darwin_agent --universe 1000 --roots 5`), incluindo
     `investigator_research.py --loop` e `strategist_research.py --loop`
     rodando em paralelo com uma `ANTHROPIC_API_KEY` de verdade.

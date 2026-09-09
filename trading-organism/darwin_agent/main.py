@@ -58,6 +58,11 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
     # não faz sentido um robô semanal ficar batendo na API toda hora.
     organism = Organism(base_config=config, symbols=symbols, heartbeat_by_timeframe=True)
 
+    # Painel de apurações — só leitura, lê data/population.json (ver
+    # dashboard.py). Sobe junto, sempre, é seguro (não decide nada).
+    from darwin_agent.dashboard import start_dashboard
+    dashboard_task = asyncio.create_task(start_dashboard(config.dashboard_port, organism.state_file))
+
     # Bootstrap dev: fila de estratégias já pesquisadas (ver investigator.py).
     # Em produção o Investigador roda continuamente (~30min) alimentando
     # essa mesma fila via ingest() — aqui é só o ponto de partida.
@@ -77,6 +82,7 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
     feed_task = asyncio.create_task(organism.poll_strategy_feed())
 
     print(f"\n  População rodando (paper trading). Estado em: {organism.state_file}")
+    print(f"  Painel de apurações: http://0.0.0.0:{config.dashboard_port}")
     print(f"  Investigador contínuo: rode `python -m darwin_agent.investigator_research --loop` "
           f"em paralelo (grava em data/strategy_feed/, absorvido automaticamente).")
     print(f"  Estrategista (pesquisa em fonte aberta): rode `python -m darwin_agent.strategist_research --loop` "
@@ -92,6 +98,7 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
         pass
     finally:
         feed_task.cancel()
+        dashboard_task.cancel()
         await organism.shutdown()
     print("\n🏁 População extinta ou encerrada.")
 
