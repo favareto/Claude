@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from darwin_agent.investigator import StrategyProposal
+from darwin_agent.leaderboard import StrategyLeaderboard
 from darwin_agent.markets.base import MarketSignal
 from darwin_agent.risk.manager import RiskManager
 from darwin_agent.strategies.base import STRATEGY_REGISTRY
@@ -48,11 +49,33 @@ class Strategist:
     def __init__(self, risk_config: RiskConfig):
         self._risk_config = risk_config
         self._risk_by_robot: Dict[str, RiskManager] = {}
+        # Ranking vivo de até 500 estratégias — a autonomia do Estrategista
+        # expressa como mérito acumulado (ver leaderboard.py).
+        self.leaderboard = StrategyLeaderboard()
 
     def _risk_for(self, robot_id: str) -> RiskManager:
         if robot_id not in self._risk_by_robot:
             self._risk_by_robot[robot_id] = RiskManager(self._risk_config)
         return self._risk_by_robot[robot_id]
+
+    def consider_new_strategy(self, proposal: StrategyProposal) -> Tuple[bool, str]:
+        """O Investigador traz uma proposta nova (a cada rodada de
+        pesquisa, ~30min em produção) — o Estrategista decide se ela entra
+        no ranking de até 500. Uma estratégia melhor pode sobrepor uma
+        pior quando o ranking está cheio."""
+        return self.leaderboard.consider(proposal)
+
+    def promote_strategy(self, strategy_id: str):
+        """Um robô com esta estratégia clonou (+70%) — promove no ranking."""
+        self.leaderboard.promote(strategy_id)
+
+    def demote_strategy(self, strategy_id: str):
+        """Um robô com esta estratégia foi eliminado (-60% do pico) —
+        rebaixa no ranking."""
+        self.leaderboard.demote(strategy_id)
+
+    def register_strategy_attempt(self, strategy_id: str):
+        self.leaderboard.register_attempt(strategy_id)
 
     def validate_strategy(self, robot_id: str, symbol: str,
                           available_strategies: List[str]) -> Tuple[bool, str]:

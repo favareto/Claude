@@ -22,24 +22,29 @@ DEFAULT_SYMBOLS = ["SIM-A", "SIM-B", "SIM-C", "SIM-D"]
 def _print_report(organism: Organism):
     organism._sync_alive_records()
     records = sorted(organism.records.values(), key=lambda r: r.born_at)
-    print("\n" + "=" * 78)
+    print("\n" + "=" * 88)
     print("  RELATÓRIO DA POPULAÇÃO")
-    print("=" * 78)
-    print(f"{'id':<11} {'pai':<11} {'ativo':<7} {'estratégia':<14} {'status':<6} {'capital':>9} "
+    print("=" * 88)
+    print(f"{'id':<11} {'pai':<11} {'ativo':<7} {'estratégia':<14} {'tf':<4} {'status':<6} {'capital':>9} "
           f"{'pico':>9} {'dd%':>6} {'trades':>7} {'clones':>7}")
-    print("-" * 78)
+    print("-" * 88)
     for r in records:
-        print(f"{r.id:<11} {(r.parent_id or '-'):<11} {r.symbol:<7} {r.strategy_name:<14} {r.status:<6} "
+        print(f"{r.id:<11} {(r.parent_id or '-'):<11} {r.symbol:<7} {r.strategy_name:<14} {r.timeframe:<4} {r.status:<6} "
               f"${r.capital:>7.2f} ${r.peak_capital:>7.2f} {r.drawdown_pct:>5.1f}% "
               f"{r.total_trades:>7} {r.clones_generated:>7}")
         if r.status == "dead":
             print(f"             -> morreu: {r.cause_of_death}")
     summary = organism.summary()
-    print("-" * 78)
+    print("-" * 88)
     print(f"  Vivos: {summary['alive']} | Mortos: {summary['dead']} | "
           f"Capital total vivo: ${summary['total_capital_alive']:.2f} | "
           f"Clones gerados: {summary['total_clones']}")
-    print("=" * 78)
+    print("=" * 88)
+
+    lb = organism.strategist.leaderboard
+    print(f"\n  Ranking de estratégias: {len(lb)}/{lb.capacity}")
+    for e in lb.top(10):
+        print(f"    score={e.score:>5.2f} | {e.name:<35} | {e.clones} clones / {e.deaths} mortes / {e.attempts} tentativas")
 
 
 async def main_async(n_robots: int, seconds: float, heartbeat: float, symbols):
@@ -90,7 +95,7 @@ async def main_async(n_robots: int, seconds: float, heartbeat: float, symbols):
 
 def main():
     parser = argparse.ArgumentParser(description="Simulação pura do organismo de robôs")
-    parser.add_argument("--robots", type=int, default=3, help="robôs raiz iniciais")
+    parser.add_argument("--robots", type=int, default=4, help="robôs raiz iniciais")
     parser.add_argument("--seconds", type=float, default=30.0, help="duração da simulação (segundos reais)")
     parser.add_argument("--heartbeat", type=float, default=0.02, help="intervalo entre ciclos de cada robô (segundos)")
     args = parser.parse_args()

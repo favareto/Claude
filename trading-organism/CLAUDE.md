@@ -10,6 +10,20 @@ eliminado quando dá prejuízo. O objetivo é uma população que evolui: as
 estratégias boas se multiplicam, as ruins desaparecem, e o sistema fica cada
 vez mais especializado por ativo.
 
+**Não é um sistema fechado de 2-3 ativos nem de 4 estratégias fixas.** São
+dois eixos abertos, ambos em constante atualização:
+- **Ativos**: até ~1000 símbolos negociáveis reais (não uma listinha fixa) —
+  ver `markets/symbol_universe.py`.
+- **Estratégias**: um ranking vivo de até 500, realimentado continuamente
+  pelo Investigador e reordenado pelos resultados reais dos robôs — ver
+  `leaderboard.py`.
+
+Cada robô é especialista num nicho bem específico — **estratégia × ativo ×
+timeframe** — pra maximizar a chance de acerto dele. Um robô de 1 minuto
+pode fazer 50 operações por dia; outro, no semanal, faz uma operação por
+mês — os dois são válidos, contanto que seja a melhor estratégia no melhor
+timeframe no melhor ativo pra aquele nicho.
+
 Fase atual: **simulação / paper trading**. Nada de dinheiro real ainda.
 
 ## Atores do sistema
@@ -35,8 +49,15 @@ avatar nenhum. Implementado em `investigator.py` (`StrategyProposal`,
 
 Hoje (fase de desenvolvimento) a fila é populada manualmente por
 `bootstrap_feed()` com estratégias já pesquisadas de verdade (fontes reais
-citadas no código); em produção isso é substituído por pesquisa contínua
-de verdade, sem depender de sessão interativa do Claude Code.
+citadas no código, cobrindo timeframes bem diferentes — de 5min a 1
+semana); em produção isso é substituído por pesquisa contínua de verdade,
+sem depender de sessão interativa do Claude Code.
+
+**Cadência**: a cada ~30 minutos, uma rodada de pesquisa tenta trazer uma
+estratégia nova. Cada proposta nova primeiro disputa uma vaga no ranking de
+até 500 estratégias ativas (`leaderboard.py` — ver Estrategista abaixo);
+uma estratégia melhor pode sobrepor (substituir) uma pior quando o ranking
+está cheio.
 
 ### 2. Professor
 Recebe o material do Investigador e monta o "currículo" de ensino — mas
@@ -47,32 +68,45 @@ robô a aplicar (e adaptar) a estratégia no ativo em que ele é especialista.
 Gatekeeper em duas camadas, com **autonomia real pra reprovar qualquer
 estratégia ou operação sempre que consultado** — não é um carimbo
 automático. Mesmo uma proposta com schema perfeito é recusada se o
-histórico real da população mostrar que ela não está performando:
-1. Valida a estratégia geral de um robô quando ele nasce ou quando muda de
-   estratégia. Camada de mérito: se `N` ou mais robôs já nasceram com essa
-   combinação (estratégia + ativo) e a taxa de morte for alta demais
-   (≥75%, com amostra mínima de 3 tentativas — configurável em
-   `Strategist.MIN_ATTEMPTS_BEFORE_JUDGING`/`MAX_DEATH_RATE`), o
-   Estrategista recusa novas tentativas naquela combinação especificamente
-   — a mesma estratégia continua liberada em outro ativo com histórico
-   limpo. Implementado em `strategist.py` (`TrackRecord`,
-   `validate_proposal`), calculado por `organism.py` (`Organism._track_record`)
-   a partir dos robôs já nascidos.
-2. Valida CADA sinal de entrada antes de qualquer execução (`validate_entry`,
+histórico real da população mostrar que ela não está performando. Tem TRÊS
+frentes de julgamento (todas em `strategist.py`):
+
+1. **Ranking de estratégias (`leaderboard.py`, até 500)** — quando o
+   Investigador traz uma proposta nova, ela primeiro disputa uma vaga:
+   entra se houver espaço, ou sobrepõe a pior colocada se for melhor. Cada
+   entrada é pontuada por uma razão suavizada `(clones+1)/(mortes+1)`:
+   - Robô com aquela estratégia **clona** (+70%) → estratégia é
+     **promovida** (sobe no ranking).
+   - Robô com aquela estratégia é **eliminado** (-60% do pico) → estratégia
+     é **rebaixada** (desce no ranking).
+   Isso é a autonomia do Estrategista expressa como mérito acumulado real,
+   não opinião.
+2. **Mérito por combinação (estratégia + ativo) — `TrackRecord`**: mesmo
+   uma estratégia bem colocada no ranking geral pode ser recusada pra um
+   ativo ESPECÍFICO se `N` ou mais robôs já nasceram ali e a taxa de morte
+   for alta demais (≥75%, amostra mínima de 3 — configurável em
+   `Strategist.MIN_ATTEMPTS_BEFORE_JUDGING`/`MAX_DEATH_RATE`). A mesma
+   estratégia continua liberada em outro ativo com histórico limpo.
+3. **Cada sinal de entrada** antes de qualquer execução (`validate_entry`,
    reaproveitando `RiskManager`: confiança mínima adaptativa, limite diário
    de perdas, R:R mínimo, posições máximas). Se discordar, a operação não
    acontece.
+
 É chamado com muita frequência — pensar nele como um serviço central, não
-algo que cada robô roda isolado. Hoje o julgamento em ambas as camadas é
+algo que cada robô roda isolado. Hoje o julgamento nas três frentes é
 determinístico (regras + histórico real); é o ponto de extensão pra um
 agente/LLM julgar com mais nuance depois, sem mudar quem o chama.
 
 ### 4. Agente-robô
 - Nasce com **$5**.
-- Opera só o ativo em que é especialista **e só a estratégia com que
-  nasceu** (validada pelo Estrategista) — não escolhe livremente entre
-  outras estratégias implementadas. Um clone herda a mesma estratégia do
-  pai (é uma clonagem literal).
+- Opera um nicho bem específico: **um ativo + uma estratégia + um
+  timeframe** — não escolhe livremente entre outras estratégias
+  implementadas nem troca de timeframe. O timeframe vem da proposta do
+  Investigador (uma estratégia de scalping roda em 1-5min; uma de swing,
+  em 1d-1w) — é isso que permite um robô de 1min fazendo dezenas de trades
+  por dia CONVIVER com um robô semanal fazendo ~1 por mês, cada um
+  especialista no seu nicho. Um clone herda ativo + estratégia + timeframe
+  do pai (é uma clonagem literal).
 - Toda entrada precisa passar pelo Estrategista.
 - Regras de vida (ver abaixo).
 
@@ -80,6 +114,13 @@ agente/LLM julgar com mais nuance depois, sem mudar quem o chama.
 Mantém o estado de toda a população: quem existe, saldo de cada um, quem
 está operando, histórico de quem já foi eliminado. É a única fonte de
 verdade — tanto a simulação quanto a visualização leem daqui.
+
+Distribui os robôs sobre um **universo de até ~1000 ativos reais**
+(`markets/symbol_universe.py` — busca símbolos negociáveis de verdade na
+Bybit via API pública, spot + perpétuos USDT combinados; cai num fallback
+curado de ~30 pares líquidos se a rede falhar). Não é um sistema fechado
+de Bitcoin/Ethereum: qualquer ativo negociável na exchange integrada entra
+no pool de onde o Organism sorteia especialistas.
 
 ### 6. Visualizador
 Ambiente 2D top-down (estilo Tibia): bonequinhos sentados numa mesa
@@ -184,7 +225,10 @@ A documentação de arquitetura original dos autores está preservada em
 | Professor (currículo por robô/ativo) | Não | **Pendente** — construir como sub-agente novo |
 | Estrategista (2 camadas, com autonomia real de veto) | Parcial (só `RiskManager.approve_trade`, sem camada 1) | **Feito** — `strategist.py: Strategist`, serviço único compartilhado por toda a população. Camada 2 (`validate_entry`, cada sinal) reaproveita `RiskManager`. Camada 1: `validate_strategy` (sanidade genérica) + `validate_proposal` (schema + **veto por histórico real**: `TrackRecord` conta tentativas/mortes por combinação estratégia+ativo, calculado por `Organism._track_record`; ≥75% de morte com ≥3 tentativas = recusa, mesmo com schema perfeito). Validado: 3 mortes seguidas em momentum/BTCUSDT → 4ª tentativa recusada; mesma estratégia em ETHUSDT (histórico limpo) → aprovada normalmente |
 | Nasce 1 boneco novo por proposta aprovada | Não existia esse fluxo | **Feito** — `organism.py: Organism.propose_and_spawn()`: Investigador traz proposta → Estrategista valida → se aprovada, nasce exatamente 1 avatar; se recusada, nenhum. Robô fica travado na estratégia com que nasceu (`ml/brain.py: SingleStrategyBrain` — restringe o espaço de ação do Q-learning a `[estratégia, hold]`, nunca migra pra outra) |
-| Agente-robô opera só 1 ativo | Não (varria uma watchlist de até 10 símbolos) | **Feito** — `AgentConfig.symbol` (um só), atribuído pelo `Organism` no nascimento |
+| Agente-robô opera só 1 ativo + 1 estratégia + 1 timeframe | Não (varria uma watchlist de até 10 símbolos, todas as 4 estratégias, timeframe global fixo) | **Feito** — `AgentConfig.symbol`/`scan_timeframe` atribuídos pelo `Organism` no nascimento a partir da proposta; `SingleStrategyBrain` trava a estratégia |
+| Universo de ~1000 ativos reais (não fechado em 2-3 símbolos) | Não (watchlist de até 10, hardcoded) | **Feito** — `markets/symbol_universe.py: fetch_symbol_universe()` busca símbolos reais negociáveis na Bybit (API pública `/v5/market/instruments-info`, spot+linear USDT, paginado), com fallback curado se a rede falhar. Testado offline com fixtures (paginação, filtro por moeda/status, dedup entre categorias, fallback) — rede real bloqueada neste sandbox de dev por política de egress, funciona em produção (VPS). `main.py --universe 1000` usa isso |
+| Ranking vivo de até 500 estratégias, promovido/rebaixado por resultado real | Não existia | **Feito** — `leaderboard.py: StrategyLeaderboard`. `promote()` no evento de clonagem (+70%), `demote()` no evento de eliminação (-60%), `consider()` decide se uma proposta nova do Investigador entra ou sobrepõe a pior colocada. Score = razão suavizada clones/mortes. Testado: capacidade respeitada, promoção/rebaixamento reais via `Organism._handle_clone`/`_handle_death`, substituição da pior colocada quando o ranking está cheio |
+| Timeframe como parte da especialização (1min "diarista" convivendo com 1w "position") | Não (`scan_timeframe` era global, só até 1d) | **Feito** — `StrategyProposal.timeframe`, `TimeFrame.W1` adicionado, `Organism._new_config` aplica por robô; `heartbeat_by_timeframe=True` (main.py) escala o intervalo de checagem pelo timeframe (1min→30s, 1w→6h) — não faz sentido um robô semanal pollar toda hora |
 | Conexão com exchange / paper trading | Sim (Bybit testnet + paper) | Reaproveitado sem mudanças — `markets/crypto.py` |
 | Simulação pura (sem exchange, sem chaves) | Não | **Novo** — `markets/simulated.py: SimulatedMarketAdapter` (preços sintéticos), usado por `simulate.py` |
 | Visualização 2D estilo Tibia | Não (dashboard web simples) | **Pendente** — o `dashboard.py` antigo ainda assume 1 agente global; precisa ser refeito lendo `data/population.json` |
@@ -216,10 +260,26 @@ A documentação de arquitetura original dos autores está preservada em
    ganhou veto por `TrackRecord`: recusa uma combinação estratégia+ativo
    com histórico de morte ruim, mesmo com proposta tecnicamente perfeita.
    Validado com robôs reais morrendo em sequência.
-7. Investigador de verdade: virar script de pesquisa CONTÍNUA de verdade
-   (LLM + busca web, cron/GitHub Actions) em vez de `bootstrap_feed()`
-   manual. Construir o Professor (currículo por robô/ativo) e evoluir o
-   julgamento do Estrategista pra um agente/LLM com mais nuance (hoje é
-   regra de threshold). Refazer `dashboard.py` e a visualização 2D lendo
-   `data/population.json`; depois testar contra a Bybit testnet de verdade
-   (`python -m darwin_agent --symbols BTCUSDT`).
+7. ~~Universo de ~1000 ativos reais (não fechado); ranking vivo de até 500
+   estratégias promovido/rebaixado pelos eventos reais dos robôs; timeframe
+   como parte da especialização (robô de 1min convivendo com robô
+   semanal).~~ Feito — `markets/symbol_universe.py` (busca real na Bybit,
+   testado offline com fixtures por bloqueio de rede no sandbox de dev),
+   `leaderboard.py` (`StrategyLeaderboard`, capacidade 500, `consider`/
+   `promote`/`demote`), `TimeFrame.W1` + `StrategyProposal.timeframe` +
+   `Organism._new_config`. Validado com objetos reais: proposta semanal
+   nasce com `scan_timeframe=1w`, clone herda o timeframe do pai, clonagem
+   promove a estratégia no ranking (score sobe), morte rebaixa (score
+   desce), ranking cheio só aceita entrada nova se ela superar a pior
+   colocada.
+8. Investigador de verdade: virar script de pesquisa CONTÍNUA de verdade
+   (LLM + busca web, cron/GitHub Actions, a cada ~30min) em vez de
+   `bootstrap_feed()` manual. Construir o Professor (currículo por
+   robô/ativo) e evoluir o julgamento do Estrategista pra um agente/LLM com
+   mais nuance (hoje é regra de threshold). Parametrização fina por
+   proposta (`StrategyProposal.params` já existe no schema, mas as 4
+   implementações em `strategies/base.py` ainda têm indicadores
+   hardcoded — EMA 9/21 fixo, não configurável por proposta). Refazer
+   `dashboard.py` e a visualização 2D lendo `data/population.json`; depois
+   testar contra a Bybit testnet de verdade
+   (`python -m darwin_agent --universe 1000 --roots 5`).

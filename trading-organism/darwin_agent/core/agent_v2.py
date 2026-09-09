@@ -100,6 +100,7 @@ class DarwinAgentV2:
         mapping = {
             "1m": TimeFrame.M1, "5m": TimeFrame.M5, "15m": TimeFrame.M15,
             "1h": TimeFrame.H1, "4h": TimeFrame.H4, "1d": TimeFrame.D1,
+            "1w": TimeFrame.W1,
         }
         return mapping.get((timeframe_value or "15m").lower(), TimeFrame.M15)
 

@@ -12,6 +12,7 @@ import os
 import signal
 import sys
 
+from darwin_agent.investigator import bootstrap_feed
 from darwin_agent.organism import Organism
 from darwin_agent.utils.config import load_config, AgentConfig
 
@@ -24,11 +25,12 @@ BANNER = """
 """
 
 
-async def run_forever(config: AgentConfig, symbols: list):
+async def run_forever(config: AgentConfig, symbols: list, roots: int):
     print(BANNER)
     print(f"  Capital por robô: ${config.starting_capital} | Clona em: +{(config.clone_multiplier - 1) * 100:.0f}% | "
           f"Morre em: -{config.health.death_drawdown_pct:.0f}% do pico")
     print(f"  Markets: {', '.join(k for k, v in config.markets.items() if v.enabled)}")
+    print(f"  Universo de ativos: {len(symbols)} símbolos")
     print("=" * 55)
 
     # ── Pre-flight: Run diagnostics before starting ──
@@ -51,10 +53,24 @@ async def run_forever(config: AgentConfig, symbols: list):
             else:
                 print(f"  ✅ All {diag.passed_count} checks passed!")
 
-    organism = Organism(base_config=config, symbols=symbols)
-    for symbol in symbols:
-        robot_id = await organism.spawn_root(symbol)
-        print(f"  🐣 {robot_id} nasceu especialista em {symbol} com ${config.starting_capital}")
+    # heartbeat_by_timeframe=True: cada robô consulta o mercado num ritmo
+    # coerente com seu timeframe (1m escaneia a cada 30s; 1w a cada 6h) —
+    # não faz sentido um robô semanal ficar batendo na API toda hora.
+    organism = Organism(base_config=config, symbols=symbols, heartbeat_by_timeframe=True)
+
+    # Bootstrap dev: fila de estratégias já pesquisadas (ver investigator.py).
+    # Em produção o Investigador roda continuamente (~30min) alimentando
+    # essa mesma fila via ingest() — aqui é só o ponto de partida.
+    investigador = bootstrap_feed()
+    proposals = investigador.all_ingested()
+    for i in range(roots):
+        proposal = proposals[i % len(proposals)]
+        symbol = symbols[i % len(symbols)]
+        robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol)
+        if robot_id:
+            print(f"  🐣 {robot_id} nasceu especialista em {proposal.implementation}/{proposal.timeframe}/{symbol} com ${config.starting_capital}")
+        else:
+            print(f"  ⛔ Estrategista recusou '{proposal.name}' em {symbol}: {reason}")
 
     print(f"\n  População rodando (paper trading). Estado em: {organism.state_file}")
     print("  Ctrl+C para parar.\n")
@@ -83,13 +99,20 @@ def show_status(config, state_file: str = "data/population.json"):
     print(f"\n📊 População — atualizado em {data.get('updated_at', '?')}\n")
     print(f"  Vivos: {data.get('population_alive', 0)} | Total já existiu: {data.get('population_total', 0)} | "
           f"Capital vivo: ${data.get('total_capital_alive', 0):.2f}\n")
-    print(f"{'id':<11} {'pai':<11} {'ativo':<9} {'status':<6} {'capital':>9} {'clones':>7}")
-    print("-" * 65)
+    print(f"{'id':<11} {'pai':<11} {'ativo':<9} {'estratégia':<20} {'tf':<4} {'status':<6} {'capital':>9} {'clones':>7}")
+    print("-" * 80)
     for r in data.get("robots", []):
-        print(f"{r['id']:<11} {(r.get('parent_id') or '-'):<11} {r['symbol']:<9} {r['status']:<6} "
+        print(f"{r['id']:<11} {(r.get('parent_id') or '-'):<11} {r['symbol']:<9} "
+              f"{r.get('strategy_name', '-'):<20} {r.get('timeframe', '-'):<4} {r['status']:<6} "
               f"${r['capital']:>7.2f} {r.get('clones_generated', 0):>7}")
         if r["status"] == "dead":
             print(f"             -> {r.get('cause_of_death')}")
+
+    top = data.get("leaderboard_top", [])
+    if top:
+        print(f"\n📈 Ranking de estratégias ({data.get('leaderboard_size', 0)}/{data.get('leaderboard_capacity', 500)}) — top {len(top)}\n")
+        for e in top:
+            print(f"  score={e['score']:>5.2f} | {e['name']:<35} | {e['clones']} clones / {e['deaths']} mortes / {e['attempts']} tentativas")
 
 
 async def run_diagnose(config):
@@ -150,8 +173,13 @@ async def run_migrate(config):
 
 def main():
     parser = argparse.ArgumentParser(description="Darwin Agent v2.3 — Organismo")
-    parser.add_argument("--symbols", default="BTCUSDT",
-                        help="Ativos, um robô raiz por símbolo (separados por vírgula)")
+    parser.add_argument("--symbols", default=None,
+                        help="Ativos específicos, separados por vírgula (ignora --universe se dado)")
+    parser.add_argument("--universe", type=int, default=None,
+                        help="Busca até N ativos reais negociáveis na Bybit (spot+linear USDT), "
+                             "ex: --universe 1000. Cai num fallback curado se a rede falhar.")
+    parser.add_argument("--roots", type=int, default=1,
+                        help="Quantos robôs raiz nascem no início (um por proposta/ativo, ciclando)")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--status", action="store_true",
                         help="Mostra o estado atual da população")
@@ -204,7 +232,15 @@ def main():
             print(f"\n⚠️  Market '{name}' está em MAINNET — só será usado como fonte de "
                   f"preços; a execução continua sempre em paper trading.")
 
-    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    if args.symbols:
+        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    elif args.universe:
+        from darwin_agent.markets.symbol_universe import fetch_symbol_universe
+        print(f"\n  🌐 Buscando até {args.universe} ativos negociáveis na Bybit...")
+        symbols = asyncio.run(fetch_symbol_universe(target_size=args.universe))
+        print(f"  📋 Universo: {len(symbols)} ativos")
+    else:
+        symbols = ["BTCUSDT"]
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -224,7 +260,7 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
 
     try:
-        loop.run_until_complete(run_forever(config, symbols))
+        loop.run_until_complete(run_forever(config, symbols, args.roots))
     except (asyncio.CancelledError, KeyboardInterrupt):
         print("\n👋 Shutdown complete.")
     finally:

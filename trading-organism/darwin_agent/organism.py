@@ -27,6 +27,15 @@ from darwin_agent.utils.config import AgentConfig
 
 STATE_FILE = "data/population.json"
 
+# Quanto menos frequente o timeframe, menos sentido faz ficar checando o
+# mercado toda hora — um robô semanal não precisa de heartbeat de 60s. Só
+# usado quando Organism(heartbeat_by_timeframe=True) (produção/real); em
+# simulação o heartbeat vem direto de base_config, sem essa escala, pra
+# controlar a velocidade do teste.
+HEARTBEAT_BY_TIMEFRAME = {
+    "1m": 30, "5m": 60, "15m": 180, "1h": 900, "4h": 1800, "1d": 3600, "1w": 21600,
+}
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -49,18 +58,22 @@ class RobotRecord:
     died_at: Optional[str] = None
     cause_of_death: Optional[str] = None
     strategy_source: str = ""
+    strategy_id: str = ""
+    timeframe: str = ""
 
 
 class Organism:
     def __init__(self, base_config: AgentConfig, symbols: List[str],
                  real_adapter_factory: Optional[Callable[[dict], object]] = None,
-                 state_file: str = STATE_FILE):
+                 state_file: str = STATE_FILE,
+                 heartbeat_by_timeframe: bool = False):
         self.base_config = base_config
         self.symbols = symbols
         self._next_symbol_idx = 0
         self.strategist = Strategist(base_config.risk)
         self._real_adapter_factory = real_adapter_factory
         self.state_file = state_file
+        self.heartbeat_by_timeframe = heartbeat_by_timeframe
 
         self.agents: Dict[str, DarwinAgentV2] = {}
         self.records: Dict[str, RobotRecord] = {}
@@ -74,20 +87,26 @@ class Organism:
         self._next_symbol_idx += 1
         return symbol
 
-    def _new_config(self, symbol: str) -> AgentConfig:
+    def _new_config(self, symbol: str, timeframe: Optional[str] = None) -> AgentConfig:
         cfg = copy.deepcopy(self.base_config)
         cfg.symbol = symbol
+        if timeframe:
+            cfg.scan_timeframe = timeframe
+            if self.heartbeat_by_timeframe:
+                cfg.heartbeat_interval = HEARTBEAT_BY_TIMEFRAME.get(timeframe, cfg.heartbeat_interval)
         return cfg
 
     async def spawn_root(self, symbol: Optional[str] = None,
-                         strategy_name: str = "momentum") -> str:
+                         strategy_name: str = "momentum",
+                         timeframe: str = "15m") -> str:
         """Nasce um robô raiz (sem pai), especialista em `symbol` +
-        `strategy_name`. Uso direto (CLI/debug); o caminho "oficial" pra
-        nascimento de robôs raiz é `propose_and_spawn`, via uma proposta do
-        Investigador validada pelo Estrategista."""
+        `strategy_name` + `timeframe`. Uso direto (CLI/debug); o caminho
+        "oficial" pra nascimento de robôs raiz é `propose_and_spawn`, via
+        uma proposta do Investigador validada pelo Estrategista."""
         symbol = symbol or self._pick_symbol()
         robot_id = f"r-{uuid.uuid4().hex[:8]}"
-        await self._spawn(robot_id, symbol, strategy_name, parent=None)
+        await self._spawn(robot_id, symbol, strategy_name, parent=None,
+                          timeframe=timeframe, strategy_id=f"{strategy_name}:manual-spawn")
         return robot_id
 
     def _track_record(self, strategy_name: str, symbol: str) -> TrackRecord:
@@ -107,11 +126,21 @@ class Organism:
     async def propose_and_spawn(self, proposal: StrategyProposal,
                                 symbol: Optional[str] = None) -> tuple:
         """Fluxo Investigador -> Estrategista -> nascimento: cada proposta
-        trazida pelo Investigador e APROVADA pelo Estrategista (camada 1)
-        gera exatamente um avatar novo. Retorna (robot_id ou None, motivo).
-        O Estrategista pode recusar mesmo uma proposta bem formada, com
-        base no histórico real de robôs anteriores com essa combinação."""
+        trazida pelo Investigador e APROVADA pelo Estrategista gera
+        exatamente um avatar novo. Retorna (robot_id ou None, motivo). Duas
+        camadas de julgamento, qualquer uma pode recusar:
+        1. Ranking (`leaderboard`): a proposta entra nas 500 estratégias
+           ativas? Se o ranking está cheio, só entra sobrepondo a pior.
+        2. Mérito por ativo (`TrackRecord`): mesmo já estando no ranking,
+           essa combinação específica (estratégia+ativo) pode estar com
+           histórico ruim o bastante pra recusar mais uma tentativa ali.
+        """
         symbol = symbol or proposal.asset_hint or self._pick_symbol()
+
+        admitted, admit_reason = self.strategist.consider_new_strategy(proposal)
+        if not admitted:
+            return None, admit_reason
+
         track_record = self._track_record(proposal.implementation, symbol)
         ok, reason = self.strategist.validate_proposal(proposal, symbol, track_record)
         if not ok:
@@ -119,12 +148,15 @@ class Organism:
 
         robot_id = f"r-{uuid.uuid4().hex[:8]}"
         await self._spawn(robot_id, symbol, proposal.implementation, parent=None,
-                          strategy_source=f"{proposal.name} — {proposal.source}")
-        return robot_id, reason
+                          strategy_source=f"{proposal.name} — {proposal.source}",
+                          strategy_id=proposal.strategy_id, timeframe=proposal.timeframe)
+        self.strategist.register_strategy_attempt(proposal.strategy_id)
+        return robot_id, f"{admit_reason} | {reason}"
 
     async def _spawn(self, robot_id: str, symbol: str, strategy_name: str,
-                     parent: Optional[DarwinAgentV2], strategy_source: str = ""):
-        cfg = self._new_config(symbol)
+                     parent: Optional[DarwinAgentV2], strategy_source: str = "",
+                     strategy_id: str = "", timeframe: str = "15m"):
+        cfg = self._new_config(symbol, timeframe)
         agent = DarwinAgentV2(
             config=cfg,
             strategy_name=strategy_name,
@@ -145,7 +177,8 @@ class Organism:
                 parent_id=parent.robot_id if parent else None,
                 born_at=_utcnow().isoformat(),
                 capital=cfg.starting_capital, peak_capital=cfg.starting_capital,
-                strategy_source=strategy_source,
+                strategy_source=strategy_source, strategy_id=strategy_id,
+                timeframe=timeframe,
             )
             self.tasks[robot_id] = asyncio.create_task(agent.run())
         self._save_state()
@@ -154,7 +187,12 @@ class Organism:
         clone_id = f"r-{uuid.uuid4().hex[:8]}"
         parent_rec = self.records.get(parent.robot_id)
         await self._spawn(clone_id, parent.symbol, parent.strategy_name, parent,
-                          strategy_source=parent_rec.strategy_source if parent_rec else "")
+                          strategy_source=parent_rec.strategy_source if parent_rec else "",
+                          strategy_id=parent_rec.strategy_id if parent_rec else "",
+                          timeframe=parent_rec.timeframe if parent_rec else "15m")
+        # Clonagem (+70%) é o sinal de sucesso — promove a estratégia no ranking.
+        if parent_rec and parent_rec.strategy_id:
+            self.strategist.promote_strategy(parent_rec.strategy_id)
 
     async def _handle_death(self, robot: DarwinAgentV2, cause: str):
         async with self._lock:
@@ -172,6 +210,9 @@ class Organism:
             self.strategist.remove_robot(robot.robot_id)
             self.agents.pop(robot.robot_id, None)
             self.tasks.pop(robot.robot_id, None)
+        # Eliminação (-60% do pico) rebaixa a estratégia no ranking.
+        if rec and rec.strategy_id:
+            self.strategist.demote_strategy(rec.strategy_id)
         self._save_state()
 
     # ── Estado / persistência ───────────────────────────────────────
@@ -192,12 +233,16 @@ class Organism:
         self._sync_alive_records()
         alive = [r for r in self.records.values() if r.status == "alive"]
         dead = [r for r in self.records.values() if r.status == "dead"]
+        leaderboard = self.strategist.leaderboard
         data = {
             "updated_at": _utcnow().isoformat(),
             "population_alive": len(alive),
             "population_total": len(self.records),
             "total_capital_alive": round(sum(r.capital for r in alive), 2),
             "robots": [asdict(r) for r in self.records.values()],
+            "leaderboard_size": len(leaderboard),
+            "leaderboard_capacity": leaderboard.capacity,
+            "leaderboard_top": [e.to_dict() for e in leaderboard.top(20)],
         }
         directory = os.path.dirname(self.state_file) or "."
         os.makedirs(directory, exist_ok=True)

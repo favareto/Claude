@@ -65,6 +65,7 @@ class BybitAdapter(MarketAdapter):
     TIMEFRAME_MAP = {
         TimeFrame.M1: "1", TimeFrame.M5: "5", TimeFrame.M15: "15",
         TimeFrame.H1: "60", TimeFrame.H4: "240", TimeFrame.D1: "D",
+        TimeFrame.W1: "W",
     }
 
     def __init__(self, config: dict):

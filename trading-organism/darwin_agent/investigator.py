@@ -3,15 +3,21 @@ FLUXO CONTÍNUO: a cada rodada de pesquisa (produção: script separado, cron/
 GitHub Actions, chamando a API da Anthropic com busca web habilitada — ver
 CLAUDE.md), novas estratégias de sucesso são descobertas e injetadas na
 fila (`ingest`). O Estrategista consome dessa fila conforme robôs precisam
-nascer — nunca um catálogo estático de "as 4 estratégias de sempre".
+nascer — nunca um catálogo estático de "as 4 estratégias de sempre" — e
+mantém um ranking vivo de até 500 (`leaderboard.py`).
 
 Cada estratégia é estruturada em formato padronizado (nome, indicadores,
-regra de entrada, regra de saída, gestão de risco, fonte) antes de virar
-uma `StrategyProposal`.
+regra de entrada, regra de saída, gestão de risco, fonte, TIMEFRAME) antes
+de virar uma `StrategyProposal`. O timeframe é parte da especialização do
+robô: uma estratégia de 1 minuto gera um robô que opera dezenas de vezes
+por dia; uma estratégia semanal gera um robô que quase não opera — ambos
+válidos, cada um especialista no seu nicho (estratégia × ativo ×
+timeframe).
 """
 
+import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from darwin_agent.strategies.base import STRATEGY_REGISTRY
 
@@ -25,7 +31,9 @@ class StrategyProposal:
     risk_management: str
     source: str
     implementation: str  # chave em STRATEGY_REGISTRY que executa isto
+    timeframe: str = "15m"  # 1m/5m/15m/1h/4h/1d/1w — parte da especialização
     asset_hint: Optional[str] = None
+    params: Dict = field(default_factory=dict)  # reservado p/ parametrização fina futura
 
     def is_well_formed(self) -> bool:
         """Checagem de schema — não substitui o julgamento do Estrategista,
@@ -34,12 +42,23 @@ class StrategyProposal:
                    self.risk_management, self.source, self.implementation]
         return all(bool(f) for f in required)
 
+    @property
+    def strategy_id(self) -> str:
+        """Identidade estável pro ranking (leaderboard.py) — cada proposta
+        com nome distinto é uma entrada distinta, mesmo compartilhando a
+        mesma `implementation` (a execução ainda roteia por 1 de N motores
+        implementados; a granularidade fina por parâmetro é trabalho
+        futuro — ver `params`)."""
+        slug = re.sub(r"[^a-z0-9]+", "-", self.name.lower()).strip("-")
+        return f"{self.implementation}:{slug}"
+
 
 class Investigador:
     """Fila de estratégias pesquisadas — cresce continuamente via `ingest`.
     Nada aqui é fixo: uma rodada de pesquisa pode trazer 0, 1 ou várias
     estratégias novas a qualquer momento; o mesmo `implementation` pode
-    reaparecer com parâmetros/fontes diferentes conforme a pesquisa avança.
+    reaparecer com parâmetros/fontes/timeframes diferentes conforme a
+    pesquisa avança.
     """
 
     def __init__(self):
@@ -67,9 +86,10 @@ class Investigador:
 
 def bootstrap_feed() -> Investigador:
     """Ponto de partida pra desenvolvimento/simulação — algumas rodadas de
-    pesquisa já feitas manualmente (fontes reais, ver cada `source`). Em
-    produção isto some: o Investigador roda de verdade e `ingest()` é
-    chamado continuamente por um script externo, não por esta função."""
+    pesquisa já feitas manualmente (fontes reais, ver cada `source`),
+    cobrindo timeframes bem diferentes de propósito. Em produção isto some:
+    o Investigador roda de verdade (a cada ~30min) e `ingest()` é chamado
+    continuamente por um script externo, não por esta função."""
     inv = Investigador()
     inv.ingest(StrategyProposal(
         name="EMA 9/21 Crossover (Momentum)",
@@ -83,6 +103,7 @@ def bootstrap_feed() -> Investigador:
               "(profit factor 1.59 no EMA 9/21 em BTCUSD D1; funciona melhor "
               "como filtro de tendência do que sinal isolado)",
         implementation="momentum",
+        timeframe="15m",
         asset_hint="BTCUSDT",
     ))
     inv.ingest(StrategyProposal(
@@ -98,6 +119,7 @@ def bootstrap_feed() -> Investigador:
               "(profit factor 1.62 em BTC/USDT 4H 2023-2025 em regime lateral; "
               "profit factor NEGATIVO -0.74 em regime de tendência — usar com filtro de ADX)",
         implementation="mean_reversion",
+        timeframe="4h",
         asset_hint="ETHUSDT",
     ))
     inv.ingest(StrategyProposal(
@@ -105,8 +127,8 @@ def bootstrap_feed() -> Investigador:
         indicators=["VWAP", "RSI", "EMA (tendência)", "ATR (risco)"],
         entry_rule="Compra só acima da VWAP, vende só abaixo — alinhado ao viés "
                    "dominante da sessão; RSI/EMA confirmam o timing da entrada.",
-        exit_rule="Saída rápida por ATR-based stop; alvo curto (scalping, não "
-                  "segura posição por muito tempo).",
+        exit_rule="Saída rápida por ATR-based stop; alvo curto (scalping, dezenas "
+                  "de trades por dia, não segura posição por muito tempo).",
         risk_management="Volume altíssimo de trades exige controle de custo "
                         "(fees/slippage) rígido — validar R líquido, não bruto.",
         source="Backtest em 183 perpétuos da Bybit, 60 dias de candles de 5min, "
@@ -114,6 +136,24 @@ def bootstrap_feed() -> Investigador:
               "factor líquido 1.355 (ver ressalva: estudos anteriores tinham bugs "
               "de lookahead, esta é a versão corrigida)",
         implementation="scalping",
+        timeframe="5m",
         asset_hint="SOLUSDT",
+    ))
+    inv.ingest(StrategyProposal(
+        name="Weekly High/Low Breakout Swing",
+        indicators=["Máxima/mínima semanal anterior", "Volume"],
+        entry_rule="Compra no rompimento confirmado (fechamento) acima da máxima "
+                   "semanal anterior com volume acima da média; short no rompimento "
+                   "da mínima. A resistência rompida vira suporte.",
+        exit_rule="Segura a posição por vários dias/semanas pra capturar o "
+                  "movimento principal — não sai no primeiro pullback.",
+        risk_management="Poucas operações por mês; stop bem mais largo (% maior) "
+                        "do que estratégias intradiárias, dado o timeframe.",
+        source="https://www.altrady.com/blog/swing-trading/breakout-crypto-swing-trading-strategy "
+              "(rompimento de máxima/mínima semanal como setup de swing; W1 filtra "
+              "ruído de timeframes curtos, ideal pra baixa frequência de operação)",
+        implementation="breakout",
+        timeframe="1w",
+        asset_hint="BTCUSDT",
     ))
     return inv
