@@ -1,0 +1,46 @@
+# ═══════════════════════════════════════════════════
+# 🧬 Darwin Agent v2.3 — Configuration
+# ═══════════════════════════════════════════════════
+# Copy to config.yaml and add your Bybit API keys
+
+starting_capital: 50.0
+heartbeat_interval: 20       # segundos entre ciclos (más rápido = más señales)
+log_level: "INFO"
+dashboard_port: 8080
+scan_timeframe: "1m"        # 1m/5m/15m/1h
+aggression_level: 1.35       # 1.0 normal | >1.0 más agresivo
+
+# ----- MARKETS -----
+markets:
+  crypto:
+    enabled: true
+    api_key: "YOUR_BYBIT_API_KEY"
+    api_secret: "YOUR_BYBIT_API_SECRET"
+    testnet: true            # ⚠️ ALWAYS start with testnet!
+    max_allocation_pct: 60.0
+
+# ----- HEALTH SYSTEM -----
+health:
+  starting_hp: 100.0
+  instant_death_capital: 10.0
+  critical_capital: 25.0
+  critical_hp_penalty: 50.0
+  max_drawdown_pct: 20.0
+  drawdown_hp_penalty: 30.0
+
+# ----- RISK MANAGEMENT -----
+risk:
+  max_position_pct: 2.0
+  max_open_positions: 3
+  max_daily_trades: 20
+  max_daily_loss_pct: 5.0
+  default_stop_loss_pct: 1.5
+  default_take_profit_pct: 3.0
+  min_risk_reward_ratio: 1.5
+
+# ----- EVOLUTION -----
+evolution:
+  incubation_candles: 200
+  min_graduation_winrate: 0.52
+  dna_path: "data/generations"
+  max_generations_memory: 50
