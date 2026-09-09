@@ -11,7 +11,7 @@ Uso:
 import argparse
 import asyncio
 
-from darwin_agent.investigator import seed_catalog
+from darwin_agent.investigator import bootstrap_feed
 from darwin_agent.markets.simulated import SimulatedMarketAdapter
 from darwin_agent.organism import Organism
 from darwin_agent.utils.config import AgentConfig, MarketConfig
@@ -61,17 +61,21 @@ async def main_async(n_robots: int, seconds: float, heartbeat: float, symbols):
         state_file="data/population.json",
     )
 
-    investigador = seed_catalog()
-    proposal = investigador.propose(0)  # única proposta pesquisada até agora (ver investigator.py)
-    print(f"Investigador trouxe: {proposal.name} ({proposal.implementation}) | fonte: {proposal.source[:70]}...")
+    # Fila do Investigador — não é um catálogo fixo, é o que já foi
+    # pesquisado até agora (cresce a cada rodada de pesquisa real).
+    investigador = bootstrap_feed()
+    feed = investigador.all_ingested()
+    print(f"Investigador tem {len(feed)} estratégias pesquisadas na fila.\n")
 
     for i in range(n_robots):
+        proposal = feed[i % len(feed)]  # cicla o que já existe; produção teria mais chegando
         symbol = symbols[i % len(symbols)]
         robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol)
         if robot_id:
-            print(f"Estrategista aprovou -> nasceu {robot_id} especialista em {proposal.implementation}/{symbol} com $5")
+            print(f"Investigador trouxe '{proposal.name}' -> Estrategista aprovou -> "
+                  f"nasceu {robot_id} especialista em {proposal.implementation}/{symbol} com $5")
         else:
-            print(f"Estrategista recusou ({symbol}): {reason}")
+            print(f"Investigador trouxe '{proposal.name}' -> Estrategista RECUSOU ({symbol}): {reason}")
 
     start = asyncio.get_event_loop().time()
 

@@ -1,18 +1,23 @@
 """Estrategista — gatekeeper central em duas camadas (ver CLAUDE.md).
 
-Camada 1 (`validate_strategy`): valida a estratégia geral de um robô quando
-ele nasce ou clona.
+Camada 1 (`validate_strategy`/`validate_proposal`): valida a estratégia
+geral de um robô quando ele nasce ou clona.
 Camada 2 (`validate_entry`): valida CADA sinal de entrada antes de qualquer
 execução — se recusar, a operação não acontece.
 
 É um SERVIÇO CENTRAL — uma única instância compartilhada por toda a
-população, chamada por todos os robôs (não uma cópia isolada por robô).
-Hoje as duas camadas são checagens determinísticas (RiskManager + validação
-de sanidade); é o ponto de extensão pra plugar um agente/LLM que julgue a
-estratégia proposta pelo Professor, sem mudar quem o chama.
+população, chamada por todos os robôs (não uma cópia isolada por robô). Tem
+autonomia pra reprovar QUALQUER estratégia ou operação sempre que
+consultado — não é um carimbo automático: mesmo uma proposta com schema
+perfeito é recusada se o histórico da população mostrar que aquela
+estratégia não está performando naquele ativo (ver `validate_proposal`).
+Hoje o julgamento é determinístico (RiskManager + histórico de
+sobrevivência); é o ponto de extensão pra plugar um agente/LLM depois, sem
+mudar quem chama.
 """
 
-from typing import Dict, List, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 from darwin_agent.investigator import StrategyProposal
 from darwin_agent.markets.base import MarketSignal
@@ -21,7 +26,25 @@ from darwin_agent.strategies.base import STRATEGY_REGISTRY
 from darwin_agent.utils.config import RiskConfig
 
 
+@dataclass
+class TrackRecord:
+    """Histórico de robôs já nascidos com uma (estratégia, ativo) — dá ao
+    Estrategista uma base real pra reprovar propostas, não só checar schema."""
+    attempts: int = 0
+    deaths: int = 0
+    clones: int = 0
+
+    @property
+    def death_rate(self) -> float:
+        return self.deaths / self.attempts if self.attempts > 0 else 0.0
+
+
 class Strategist:
+    # Só julga pelo histórico depois de um mínimo de tentativas — amostra
+    # pequena demais não é evidência.
+    MIN_ATTEMPTS_BEFORE_JUDGING = 3
+    MAX_DEATH_RATE = 0.75
+
     def __init__(self, risk_config: RiskConfig):
         self._risk_config = risk_config
         self._risk_by_robot: Dict[str, RiskManager] = {}
@@ -42,20 +65,38 @@ class Strategist:
             return False, "Nenhuma estratégia disponível"
         return True, f"Estratégia aprovada para {symbol}"
 
-    def validate_proposal(self, proposal: StrategyProposal, symbol: str) -> Tuple[bool, str]:
+    def validate_proposal(self, proposal: StrategyProposal, symbol: str,
+                          track_record: Optional[TrackRecord] = None) -> Tuple[bool, str]:
         """Camada 1 (julgamento da proposta do Investigador) — chamada UMA
         vez por proposta trazida, antes de criar um avatar novo pra ela.
-        Cada proposta aprovada aqui gera exatamente um boneco novo.
+        Cada proposta aprovada aqui gera exatamente um boneco novo; cada
+        recusa não gera nenhum.
 
-        Hoje é uma checagem determinística de sanidade/rastreabilidade
-        (schema completo, implementação existe, tem fonte); ponto de
-        extensão pra um julgamento por LLM sem mudar quem chama."""
+        Duas frentes de reprovação, independentes:
+        1. Schema/rastreabilidade — proposta incompleta ou estratégia sem
+           implementação não passa, ponto.
+        2. Mérito — mesmo uma proposta bem formada é recusada se o
+           histórico real da população (`track_record`, calculado pelo
+           Organism a partir dos robôs já nascidos com essa combinação
+           estratégia+ativo) mostrar taxa de morte alta demais. O
+           Estrategista NÃO é obrigado a aprovar só porque o formulário
+           está certo.
+        """
         if not proposal.is_well_formed():
             return False, "Proposta incompleta — faltam campos obrigatórios (nome/regras/fonte)"
         if proposal.implementation not in STRATEGY_REGISTRY:
             return False, f"Implementação '{proposal.implementation}' não existe em strategies/base.py"
         if not symbol:
             return False, "Nenhum ativo disponível para o novo avatar"
+
+        if track_record and track_record.attempts >= self.MIN_ATTEMPTS_BEFORE_JUDGING:
+            if track_record.death_rate >= self.MAX_DEATH_RATE:
+                return False, (
+                    f"Estrategista recusou por histórico: {track_record.deaths}/{track_record.attempts} "
+                    f"robôs com '{proposal.implementation}' em {symbol} já morreram "
+                    f"({track_record.death_rate:.0%}) — não vale mais insistir nessa combinação"
+                )
+
         return True, f"Proposta '{proposal.name}' aprovada — avatar nascerá especialista em {proposal.implementation}/{symbol}"
 
     def validate_entry(self, robot_id: str, signal: MarketSignal, capital: float,

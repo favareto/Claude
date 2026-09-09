@@ -22,7 +22,7 @@ from typing import Callable, Dict, List, Optional
 
 from darwin_agent.core.agent_v2 import DarwinAgentV2
 from darwin_agent.investigator import StrategyProposal
-from darwin_agent.strategist import Strategist
+from darwin_agent.strategist import Strategist, TrackRecord
 from darwin_agent.utils.config import AgentConfig
 
 STATE_FILE = "data/population.json"
@@ -90,13 +90,30 @@ class Organism:
         await self._spawn(robot_id, symbol, strategy_name, parent=None)
         return robot_id
 
+    def _track_record(self, strategy_name: str, symbol: str) -> TrackRecord:
+        """Histórico real dessa combinação (estratégia, ativo) na população
+        — é isso que dá ao Estrategista base pra reprovar por mérito, não
+        só por schema."""
+        tr = TrackRecord()
+        for r in self.records.values():
+            if r.strategy_name != strategy_name or r.symbol != symbol:
+                continue
+            tr.attempts += 1
+            tr.clones += r.clones_generated
+            if r.status == "dead":
+                tr.deaths += 1
+        return tr
+
     async def propose_and_spawn(self, proposal: StrategyProposal,
                                 symbol: Optional[str] = None) -> tuple:
         """Fluxo Investigador -> Estrategista -> nascimento: cada proposta
         trazida pelo Investigador e APROVADA pelo Estrategista (camada 1)
-        gera exatamente um avatar novo. Retorna (robot_id ou None, motivo)."""
+        gera exatamente um avatar novo. Retorna (robot_id ou None, motivo).
+        O Estrategista pode recusar mesmo uma proposta bem formada, com
+        base no histórico real de robôs anteriores com essa combinação."""
         symbol = symbol or proposal.asset_hint or self._pick_symbol()
-        ok, reason = self.strategist.validate_proposal(proposal, symbol)
+        track_record = self._track_record(proposal.implementation, symbol)
+        ok, reason = self.strategist.validate_proposal(proposal, symbol, track_record)
         if not ok:
             return None, reason
 
