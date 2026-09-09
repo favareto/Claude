@@ -79,8 +79,11 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
     print(f"\n  População rodando (paper trading). Estado em: {organism.state_file}")
     print(f"  Investigador contínuo: rode `python -m darwin_agent.investigator_research --loop` "
           f"em paralelo (grava em data/strategy_feed/, absorvido automaticamente).")
-    print("  Não há teto de multiplicação — estratégias boas se multiplicam sem limite; "
-          "as ruins são eliminadas (ver CLAUDE.md).")
+    print(f"  Estrategista (pesquisa em fonte aberta): rode `python -m darwin_agent.strategist_research --loop` "
+          f"em paralelo (grava em data/strategy_reviews/, pode aprovar/recusar/sugerir mudança de parâmetros).")
+    print("  Aposta por operação fica ancorada no capital inicial de cada robô — não cresce "
+          "com o saldo acumulado. Não há teto de multiplicação — estratégias boas se multiplicam "
+          "sem limite; as ruins são eliminadas (ver CLAUDE.md).")
     print("  Ctrl+C para parar.\n")
 
     try:

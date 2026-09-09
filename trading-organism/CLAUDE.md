@@ -122,11 +122,29 @@ frentes de julgamento (todas em `strategist.py`):
    reaproveitando `RiskManager`: confiança mínima adaptativa, limite diário
    de perdas, R:R mínimo, posições máximas). Se discordar, a operação não
    acontece.
+4. **Pesquisa em fonte aberta, com poder de sugerir mudança** —
+   `strategist_research.py` (script separado, mesmo padrão do
+   Investigador: API da Anthropic + busca web habilitada). Pra cada
+   proposta nova em `data/strategy_feed/`, verifica a fonte citada (ainda é
+   válida? o contexto mudou?) e decide `approve` (aceita como veio),
+   `reject` (recusa com motivo — a proposta NÃO nasce) ou `revise` (aceita,
+   mas com `suggested_params` sobrepondo os parâmetros da proposta antes
+   do nascimento). `Organism.poll_strategy_feed` espera até 60s por essa
+   revisão antes de decidir nascer o robô — se não chegar a tempo, segue
+   sem ela (pesquisa é reforço, não trava o sistema por atraso externo).
+   Validado offline: proposta com review "reject" não gera avatar nenhum;
+   proposta com review "revise" nasce com os `suggested_params` realmente
+   aplicados (conferido no robô de verdade); proposta sem review dentro do
+   prazo nasce normalmente depois da janela de graça.
 
-É chamado com muita frequência — pensar nele como um serviço central, não
-algo que cada robô roda isolado. Hoje o julgamento nas três frentes é
-determinístico (regras + histórico real); é o ponto de extensão pra um
-agente/LLM julgar com mais nuance depois, sem mudar quem o chama.
+**Resumindo como o Estrategista avalia hoje**: 3 frentes são regras
+determinísticas sobre o histórico REAL da população (ranking de mérito,
+taxa de morte por ativo, regras de risco por trade) — nada de opinião, só
+resultado; a 4ª frente é a única que efetivamente "pesquisa" (usa uma LLM
+com busca web pra checar a fonte e propor ajuste), e roda como processo
+separado, assíncrono, sem travar o nascimento se atrasar. É chamado com
+muita frequência — pensar nele como um serviço central, não algo que cada
+robô roda isolado.
 
 ### 4. Agente-robô
 - Nasce com **$5**.
@@ -177,6 +195,16 @@ estratégia usada. Também só lê o estado do Macro-organismo.
   próximo clone dele exige +70% em cima do valor atual, não de novo sobre
   $5). A população dobra a cada clonagem; o tamanho da aposta por operação
   não dobra.
+- **O crescimento é só via multiplicação de robôs, nunca via aumento de
+  capital por trader.** O saldo de cada robô pode acumular (o original não
+  reseta ao clonar, ver acima), mas isso é só um placar — a APOSTA por
+  operação fica sempre ANCORADA no capital inicial ($5), nunca cresce
+  proporcionalmente ao saldo acumulado. Um robô que já tem $20 arrisca por
+  trade o equivalente a quando tinha $5, no dia em que nasceu. Implementado
+  em `core/agent_v2.py: _execute()` — `risk_basis = min(starting_capital,
+  current_capital)` (só reduz o risco se o robô estiver com MENOS do que
+  começou, nunca aumenta por ter mais). Não construir nenhuma feature nova
+  de "aposta cresce com o capital acumulado" sem confirmar antes.
 - **Eliminação**: quando o capital cai **60% a partir do pico** que aquele
   robô já alcançou (drawdown desde o topo, não desde o valor atual), o
   robô é fechado/removido.
@@ -332,10 +360,23 @@ A documentação de arquitetura original dos autores está preservada em
    nenhum teto de multiplicação — testado forçando 4 gerações seguidas de
    clonagem (1→2→4→8→16 robôs) e confirmando que uma estratégia perdedora
    é eliminada normalmente no mesmo cenário.
-10. Evoluir o julgamento do Estrategista (hoje é regra de threshold) e a
-    camada 1 pra um agente/LLM com mais nuance. Refazer `dashboard.py` e a
-    visualização 2D lendo `data/population.json`. Testar contra a Bybit
-    testnet de verdade
+10. ~~Aposta ancorada no capital inicial (não crescer com o saldo
+    acumulado); Estrategista pesquisar fonte aberta e poder sugerir
+    mudança de parâmetros.~~ Feito — `core/agent_v2.py: _execute()`
+    ancora o cálculo de risco em `min(starting_capital, current_capital)`
+    (só reduz risco se o robô estiver pior do que quando nasceu, nunca
+    aumenta por ter crescido). `strategist_research.py` (script separado,
+    API da Anthropic + busca web): revisa cada proposta em
+    `data/strategy_feed/`, pode `approve`/`reject`/`revise` (com
+    `suggested_params`); `Organism.poll_strategy_feed` espera até 60s pela
+    revisão antes de nascer o robô, sem travar se atrasar. Validado
+    offline: reject impede o nascimento, revise aplica os params
+    sugeridos de verdade no robô, ausência de review dentro do prazo não
+    trava o sistema.
+11. Evoluir o julgamento do Estrategista (hoje é regra de threshold +
+    pesquisa determinística) pra um agente/LLM com mais nuance ainda.
+    Refazer `dashboard.py` e a visualização 2D lendo `data/population.json`.
+    Testar contra a Bybit testnet de verdade
     (`python -m darwin_agent --universe 1000 --roots 5`), incluindo
-    `investigator_research.py --loop` rodando em paralelo com uma
-    `ANTHROPIC_API_KEY` de verdade.
+    `investigator_research.py --loop` e `strategist_research.py --loop`
+    rodando em paralelo com uma `ANTHROPIC_API_KEY` de verdade.

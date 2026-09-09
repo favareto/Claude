@@ -327,15 +327,19 @@ class DarwinAgentV2:
         if not signal:
             return False
 
+        # A aposta por operação fica ANCORADA no capital inicial do robô —
+        # não cresce com o saldo acumulado (ver CLAUDE.md: crescimento é só
+        # via multiplicação de robôs, nunca via aumento de capital por
+        # trader). Um robô que já acumulou $20 continua arriscando o
+        # equivalente a $5 por trade, igual no dia em que nasceu.
+        risk_basis = min(self.config.starting_capital, self.health.current_capital)
         size = self.strategist.calculate_position_size(
-            self.robot_id, self.health.current_capital, signal.entry_price, signal.stop_loss)
+            self.robot_id, risk_basis, signal.entry_price, signal.stop_loss)
         size *= sizing_mult
 
-        # Reaplica o teto de acessibilidade depois dos multiplicadores de
-        # agressividade/volatilidade/saúde — sem isso, a multiplicação em
-        # cascata pode pedir mais do que o capital do robô permite (fica
-        # muito visível com capital de $5; RiskManager já limita antes dos
-        # multiplicadores, mas eles podem estourar de novo).
+        # Teto de acessibilidade (independente do anchor acima): nunca pedir
+        # mais do que o robô REALMENTE tem, depois dos multiplicadores de
+        # agressividade/volatilidade/saúde.
         if signal.entry_price > 0:
             max_affordable = (self.health.current_capital * 0.9) / signal.entry_price
             size = min(size, max_affordable)

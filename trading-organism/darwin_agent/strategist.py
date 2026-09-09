@@ -11,12 +11,19 @@ autonomia pra reprovar QUALQUER estratégia ou operação sempre que
 consultado — não é um carimbo automático: mesmo uma proposta com schema
 perfeito é recusada se o histórico da população mostrar que aquela
 estratégia não está performando naquele ativo (ver `validate_proposal`).
-Hoje o julgamento é determinístico (RiskManager + histórico de
-sobrevivência); é o ponto de extensão pra plugar um agente/LLM depois, sem
-mudar quem chama.
+
+Também pesquisa fonte aberta antes de decidir (não só aplica regras sobre o
+que o Investigador mandou): `strategist_research.py` (script separado, API
+da Anthropic + busca web) verifica a fonte/contexto atual da proposta e
+pode aprovar, recusar, ou sugerir mudança de parâmetros — `apply_review()`
+aqui aplica esse resultado antes do nascimento.
+
+Hoje o julgamento determinístico (RiskManager + histórico de sobrevivência
++ ranking) já é real; a pesquisa em fonte aberta é o ponto de extensão que
+dá nuance de verdade, sem mudar quem chama.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 
 from darwin_agent.investigator import StrategyProposal
@@ -38,6 +45,21 @@ class TrackRecord:
     @property
     def death_rate(self) -> float:
         return self.deaths / self.attempts if self.attempts > 0 else 0.0
+
+
+@dataclass
+class StrategyReview:
+    """Resultado de uma pesquisa em fonte aberta sobre a proposta (ver
+    strategist_research.py) — o Estrategista pesquisando de verdade antes
+    de decidir, não só aplicando regras sobre o que o Investigador mandou.
+
+    verdict: "approve" (aceita como veio), "revise" (aceita COM os
+    suggested_params aplicados) ou "reject" (recusa, com `reason`).
+    """
+    verdict: str
+    reason: str = ""
+    suggested_params: Optional[Dict] = None
+    source_check: str = ""
 
 
 class Strategist:
@@ -76,6 +98,26 @@ class Strategist:
 
     def register_strategy_attempt(self, strategy_id: str):
         self.leaderboard.register_attempt(strategy_id)
+
+    def apply_review(self, proposal: StrategyProposal,
+                     review: Optional[StrategyReview]) -> Tuple[StrategyProposal, Optional[str]]:
+        """Aplica o resultado de uma pesquisa em fonte aberta
+        (`StrategyReview`, ver `strategist_research.py`) a uma proposta
+        ANTES de validar/nascer. É como o Estrategista pesquisa a fonte
+        aberta e pode dar sugestões de mudança, em vez de só aceitar o que
+        o Investigador trouxe.
+
+        Retorna (proposta_ajustada, motivo_de_recusa). Se `review` é None
+        (pesquisa ainda não rodou pra essa proposta — é assíncrona/externa)
+        segue com a proposta original, sem bloquear."""
+        if review is None:
+            return proposal, None
+        if review.verdict == "reject":
+            return proposal, f"Estrategista recusou após pesquisar fonte aberta: {review.reason}"
+        if review.verdict == "revise" and review.suggested_params:
+            adjusted = replace(proposal, params={**proposal.params, **review.suggested_params})
+            return adjusted, None
+        return proposal, None
 
     def validate_strategy(self, robot_id: str, symbol: str,
                           available_strategies: List[str]) -> Tuple[bool, str]:

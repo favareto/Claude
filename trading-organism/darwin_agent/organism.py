@@ -23,7 +23,7 @@ from typing import Callable, Dict, List, Optional
 from darwin_agent.core.agent_v2 import DarwinAgentV2
 from darwin_agent.investigator import StrategyProposal
 from darwin_agent.professor import Professor
-from darwin_agent.strategist import Strategist, TrackRecord
+from darwin_agent.strategist import Strategist, StrategyReview, TrackRecord
 from darwin_agent.utils.config import AgentConfig
 
 STATE_FILE = "data/population.json"
@@ -294,19 +294,42 @@ class Organism:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
 
     async def poll_strategy_feed(self, feed_dir: str = "data/strategy_feed",
-                                 interval: float = 30.0):
+                                 reviews_dir: str = "data/strategy_reviews",
+                                 interval: float = 30.0, review_grace_seconds: float = 60.0):
         """Roda pra sempre (chamar como task em paralelo com run_until).
         Observa `feed_dir` — onde `investigator_research.py` (script
         separado, pesquisa contínua de verdade via API da Anthropic + busca
         web) grava propostas novas — e injeta cada arquivo novo na
         população via `propose_and_spawn`. É assim que a pesquisa (lenta,
-        externa) fica desacoplada do loop de trading (rápido, contínuo)."""
+        externa) fica desacoplada do loop de trading (rápido, contínuo).
+
+        Antes de nascer, espera até `review_grace_seconds` por uma revisão
+        do Estrategista em `reviews_dir` (`strategist_research.py`, também
+        um script separado — pesquisa em fonte aberta, pode aprovar,
+        recusar ou sugerir mudança de parâmetros). Se a revisão não chegar
+        a tempo, segue sem ela — a revisão é um reforço, não um bloqueio
+        permanente (ver `strategist.py: Strategist.apply_review`)."""
         processed = set()
+        pending_since: Dict[str, float] = {}
         os.makedirs(feed_dir, exist_ok=True)
         while True:
+            now = asyncio.get_event_loop().time()
             for fname in sorted(os.listdir(feed_dir)):
                 if not fname.endswith(".json") or fname in processed:
                     continue
+                pending_since.setdefault(fname, now)
+
+                review = None
+                review_path = os.path.join(reviews_dir, fname)
+                if os.path.exists(review_path):
+                    try:
+                        with open(review_path) as f:
+                            review = StrategyReview(**json.load(f))
+                    except Exception as e:
+                        print(f"[Estrategista] review '{fname}' inválida, ignorando: {e}")
+                elif now - pending_since[fname] < review_grace_seconds:
+                    continue  # ainda dentro da janela de graça, espera mais um pouco
+
                 processed.add(fname)
                 path = os.path.join(feed_dir, fname)
                 try:
@@ -316,6 +339,16 @@ class Organism:
                 except Exception as e:
                     print(f"[Investigador] '{fname}' inválido, ignorando: {e}")
                     continue
+
+                proposal, reject_reason = self.strategist.apply_review(proposal, review)
+                if reject_reason:
+                    print(f"[Estrategista] '{proposal.name}' -> {reject_reason}")
+                    continue
+                if review is None:
+                    print(f"[Investigador] '{proposal.name}' seguiu sem revisão do Estrategista (prazo esgotado)")
+                elif review.verdict == "revise":
+                    print(f"[Estrategista] '{proposal.name}' revisada: {review.reason[:100]}")
+
                 symbol = proposal.asset_hint or self._pick_symbol()
                 robot_id, reason = await self.propose_and_spawn(proposal, symbol=symbol)
                 print(f"[Investigador] '{proposal.name}' -> {reason}")
