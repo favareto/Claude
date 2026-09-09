@@ -61,10 +61,15 @@ estratégia usada. Também só lê o estado do Macro-organismo.
 
 ## Regras de vida do robô (fixas — não mudar sem avisar)
 
-- Capital inicial: **$5**
-- **Clonagem**: quando o capital multiplica **+70%**, o robô clona. O
-  capital acumulado é **dividido** entre original + clone (a população
-  dobra; o tamanho da aposta por operação **não** dobra).
+- Capital inicial: **$5** — todo robô nasce com $5, seja ele raiz ou clone.
+- **Clonagem**: quando o capital do robô multiplica **+70%** sobre o seu
+  último marco (o marco começa em $5 no nascimento — ou seja, o primeiro
+  clone dispara em $8,50), o robô clona. O **clone nasce com $5 novos**; o
+  **original NÃO reseta** — segue operando com o saldo cheio que já tinha, e
+  seu próprio marco de clonagem avança para esse novo saldo (então o
+  próximo clone dele exige +70% em cima do valor atual, não de novo sobre
+  $5). A população dobra a cada clonagem; o tamanho da aposta por operação
+  não dobra.
 - **Eliminação**: quando o capital cai **60% a partir do pico** que aquele
   robô já alcançou (drawdown desde o topo, não desde o valor atual), o
   robô é fechado/removido.
@@ -130,28 +135,39 @@ O código original (v2.3) foi trazido para esta pasta (`trading-organism/`).
 A documentação de arquitetura original dos autores está preservada em
 `UPSTREAM_CLAUDE.md`, para referência.
 
-**Mapeamento — o que já existe lá vs. o que precisamos adaptar/criar:**
+**Mapeamento — o que já existe lá vs. o que foi adaptado/criado (atualizado):**
 
-| Peça do nosso organismo | Está no Darwin Agent? | O que fazer |
+| Peça do nosso organismo | Está no Darwin Agent original? | Status |
 |---|---|---|
-| Robô com capital inicial e ciclo de vida | Sim (conceito de agente que nasce/opera/morre) | Adaptar os números: capital inicial $5, clona em +70%, morre em -60% de drawdown do pico |
-| Sistema de eliminação por desempenho | Sim (sistema de saúde/HP) | Ajustar o gatilho pra ser exatamente o drawdown de 60% desde o pico |
-| Clonagem que divide capital em vez de dobrar risco | Não tem exatamente assim | Precisa implementar: ao clonar, dividir capital acumulado entre original + clone |
-| Investigador (pesquisa de estratégias na web) | Não | Construir como sub-agente novo (`.claude/agents/investigador.md`) |
-| Professor (currículo por robô/ativo) | Não | Construir como sub-agente novo |
-| Estrategista de 2 camadas (valida estratégia E cada entrada) | Parcialmente (há alguma validação de risco) | Precisa isolar isso como serviço central próprio, chamado antes de cada entrada |
-| Conexão com exchange / paper trading | Sim (Bybit testnet/paper por padrão) | Reaproveitar; trocar de exchange depois se quiser |
-| Visualização 2D estilo Tibia | Não (o dashboard dele é web simples) | Construir depois, à parte, lendo o mesmo estado |
-
-A primeira tarefa real dentro do Claude Code deve ser pedir pra ele **ler o
-código do Darwin Agent clonado e comparar com este `CLAUDE.md`**, apontando
-exatamente que arquivos mexer pra cada linha da tabela acima — antes de
-escrever qualquer código novo.
+| Robô com capital inicial e ciclo de vida | Sim, mas era **linhagem única sequencial** (1 agente por vez, morre → nasce a próxima geração) | **Feito** — `core/agent_v2.py`: cada robô é uma task assíncrona independente; N robôs rodam concorrentes (ver `organism.py`) |
+| Capital inicial $5 | Não (default $50) | **Feito** — `utils/config.py: AgentConfig.starting_capital = 5.0` |
+| Sistema de eliminação por desempenho | Sim, mas era um HP (0-100) alimentado por vários fatores, drawdown só tirava HP, não matava direto | **Feito** — `core/health.py` reescrito: morte só por `current_drawdown_pct >= death_drawdown_pct` (60%, desde o pico do próprio robô). `hp`/`max_hp` viraram só uma projeção cosmética do drawdown, mantidos por compatibilidade |
+| Clonagem em +70%, clone nasce com $5, original NÃO reseta | Não existia (só herança de DNA pra próxima geração, sequencial) | **Feito** — `core/agent_v2.py: _check_clone()`: marco de clonagem por robô, clone nasce com `starting_capital`, original segue com saldo cheio e ganha novo marco. O clone herda o cérebro (Q-learning) do pai via `inherit_brain_from()` — clonagem literal, sem mutação (auto-otimização = o próprio evento de clonar) |
+| Sem limite de multiplicação, população cresce | Não (era sempre 1 agente vivo) | **Feito** — `organism.py: Organism`: cada clone vira uma nova `asyncio.Task`, sem teto |
+| Macro-organismo (fonte única de verdade) | Não | **Feito** — `organism.py`: registro central de todos os robôs (vivos e mortos), persistido em `data/population.json` |
+| Investigador (pesquisa de estratégias) | Não | **Pendente** — construir como sub-agente novo |
+| Professor (currículo por robô/ativo) | Não | **Pendente** — construir como sub-agente novo |
+| Estrategista (2 camadas) | Parcial (só `RiskManager.approve_trade`, sem camada 1) | **Feito o esqueleto** — `strategist.py: Strategist`, serviço único compartilhado por toda a população. Camada 1 (`validate_strategy`, no nascimento) e camada 2 (`validate_entry`, cada sinal) hoje são checagens determinísticas; ponto de extensão pra virar um agente/LLM depois |
+| Agente-robô opera só 1 ativo | Não (varria uma watchlist de até 10 símbolos) | **Feito** — `AgentConfig.symbol` (um só), atribuído pelo `Organism` no nascimento |
+| Conexão com exchange / paper trading | Sim (Bybit testnet + paper) | Reaproveitado sem mudanças — `markets/crypto.py` |
+| Simulação pura (sem exchange, sem chaves) | Não | **Novo** — `markets/simulated.py: SimulatedMarketAdapter` (preços sintéticos), usado por `simulate.py` |
+| Visualização 2D estilo Tibia | Não (dashboard web simples) | **Pendente** — o `dashboard.py` antigo ainda assume 1 agente global; precisa ser refeito lendo `data/population.json` |
+| Painel de apurações | Parcial (`evolution/dna.py: create_death_report`, por geração/linhagem) | **Pendente** — hoje o histórico de mortos já fica em `Organism.records` / `population.json`; falta uma UI |
 
 ## Próximos passos sugeridos
 
 1. ~~Clonar `EJMM17/Bot` como base do repositório.~~ Feito — código em `trading-organism/`.
-2. Pedir ao Claude Code pra mapear o código existente contra a tabela acima.
-3. Ajustar as regras de vida (capital, %, drawdown) pros valores exatos deste documento.
-4. Validar o ciclo nascer→operar→clonar→morrer em simulação pura, sem Investigador/Professor reais ainda.
-5. Só depois: construir Investigador, Professor e Estrategista como peças separadas; visualização e painel vêm por último.
+2. ~~Mapear o código existente contra a tabela acima.~~ Feito (tabela acima).
+3. ~~Ajustar as regras de vida (capital, %, drawdown) pros valores exatos deste documento.~~ Feito.
+4. ~~Validar o ciclo nascer→operar→clonar→morrer em simulação pura, sem Investigador/Professor reais ainda.~~
+   Feito — `python -m darwin_agent.simulate` roda a população inteira sobre preços
+   sintéticos (sem chaves de API). Validado dos dois jeitos: (a) rodando o
+   pipeline completo (preço → decisão do brain → Estrategista → execução →
+   capital muda) e (b) forçando os limiares diretamente e confirmando que o
+   clone dispara em exatamente +70% do marco e a morte em exatamente -60%
+   de drawdown do pico, com o `Organism` registrando pai/filho e causa da
+   morte corretamente.
+5. Construir Investigador, Professor e a camada 1 real do Estrategista
+   (hoje é só uma checagem de sanidade); refazer `dashboard.py` e a
+   visualização 2D lendo `data/population.json`; depois testar contra a
+   Bybit testnet de verdade (`python -m darwin_agent --symbols BTCUSDT`).

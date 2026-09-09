@@ -902,8 +902,8 @@ async def preflight_check(adapter, config) -> Tuple[bool, str]:
     # 3. Can we read balance?
     try:
         balance = await adapter.get_balance()
-        if balance < config.health.instant_death_capital:
-            issues.append(f"Balance ${balance:.2f} below death threshold ${config.health.instant_death_capital}")
+        if balance <= 0:
+            issues.append(f"Balance ${balance:.2f} is zero or negative")
     except Exception as e:
         issues.append(f"Cannot read balance: {e}")
 

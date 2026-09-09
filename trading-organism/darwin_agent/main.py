@@ -1,40 +1,34 @@
-"""Darwin Agent — Entry Point. Run with: python -m darwin_agent [--mode test|live]"""
+"""Darwin Agent — Entry Point. Run with: python -m darwin_agent [--mode test|live]
+
+Nesta fase o organismo é uma POPULAÇÃO (ver CLAUDE.md e organism.py), não
+mais uma linhagem única geracional. Este CLI conecta em uma exchange real
+(testnet por padrão) via organism.Organism; para validar o ciclo de vida
+sem exchange nenhuma, use `python -m darwin_agent.simulate`.
+"""
 
 import asyncio
 import argparse
-import sys
-import signal
 import os
+import signal
+import sys
 
-from darwin_agent.core.agent_v2 import DarwinAgentV2, AgentPhase
+from darwin_agent.organism import Organism
 from darwin_agent.utils.config import load_config, AgentConfig
-from darwin_agent.evolution.dna import EvolutionEngine
-from darwin_agent.dashboard import set_agent, set_config_context, start_dashboard
 
 BANNER = """
 ╔═══════════════════════════════════════════════════╗
 ║  🧬  D A R W I N   A G E N T   v2.3  🧬         ║
-║  Autonomous Evolutionary Trading System           ║
-║  "Survive. Adapt. Evolve."                        ║
+║  Organismo de robôs autônomos de trade             ║
+║  "Nasce, opera, clona, morre."                     ║
 ╚═══════════════════════════════════════════════════╝
 """
 
 
-def spawn(config: AgentConfig, mode: str = "test") -> DarwinAgentV2:
-    agent = DarwinAgentV2(config)
-    if mode == "live":
-        agent.phase = AgentPhase.LIVE
-    return agent
-
-
-async def run_forever(config: AgentConfig, mode: str = "test"):
-    evo = EvolutionEngine(config.evolution.dna_path)
-    gen = evo.get_latest_generation() + 1
-
+async def run_forever(config: AgentConfig, symbols: list):
     print(BANNER)
-    print(f"  Mode: {mode.upper()} | Gen: {gen} | Capital: ${config.starting_capital}")
+    print(f"  Capital por robô: ${config.starting_capital} | Clona em: +{(config.clone_multiplier - 1) * 100:.0f}% | "
+          f"Morre em: -{config.health.death_drawdown_pct:.0f}% do pico")
     print(f"  Markets: {', '.join(k for k, v in config.markets.items() if v.enabled)}")
-    print(f"  Dashboard: http://0.0.0.0:{config.dashboard_port}")
     print("=" * 55)
 
     # ── Pre-flight: Run diagnostics before starting ──
@@ -54,71 +48,48 @@ async def run_forever(config: AgentConfig, mode: str = "test"):
                     return
                 else:
                     print("\n  ⚠️  Testnet diagnostics failed. Attempting anyway...")
-                    print("  (Paper trading adapter may still work for some operations)")
             else:
                 print(f"  ✅ All {diag.passed_count} checks passed!")
 
-    # Start web dashboard
-    dashboard_task = None
+    organism = Organism(base_config=config, symbols=symbols)
+    for symbol in symbols:
+        robot_id = await organism.spawn_root(symbol)
+        print(f"  🐣 {robot_id} nasceu especialista em {symbol} com ${config.starting_capital}")
+
+    print(f"\n  População rodando (paper trading). Estado em: {organism.state_file}")
+    print("  Ctrl+C para parar.\n")
+
     try:
-        dashboard_task = asyncio.create_task(start_dashboard(config.dashboard_port))
-        await asyncio.sleep(0.5)
-        print(f"\n  📊 Dashboard running on port {config.dashboard_port}")
-    except Exception as e:
-        print(f"  ⚠️  Dashboard failed: {e}")
-
-    # Run indefinitely for 24/7 evolution unless capital is fully lost or process is stopped.
-    while True:
-        agent = spawn(config, mode)
-        agent_gen = agent.generation
-
-        print(f"\n{'=' * 55}")
-        print(f"  🐣 Spawning Generation {agent_gen}")
-        print(f"{'=' * 55}\n")
-
-        set_agent(agent)
-
-        try:
-            await agent.run()
-        except Exception as e:
-            print(f"\n❌ Agent crashed: {e}")
-
-        status = agent.get_status()
-        if status["health"]["hp"] <= 0:
-            print(f"\n💀 Gen-{agent_gen} dead: {status['health']['cause_of_death']}")
-            print(f"   Final: ${status['health']['capital']:.2f}")
-
-            if status["health"]["capital"] <= 0:
-                print("\n💸 All capital lost.")
-                break
-
-            print(f"\n🧬 Encoding DNA → spawning next gen...\n")
-            await asyncio.sleep(3)
-        else:
-            print("\nAgent stopped. Exiting.")
-            break
-
-    if dashboard_task and not dashboard_task.done():
-        dashboard_task.cancel()
-    print("\n🏁 Darwin Agent session complete.")
+        await organism.run_until(lambda org: not org.agents, check_interval=2.0)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        pass
+    finally:
+        await organism.shutdown()
+    print("\n🏁 População extinta ou encerrada.")
 
 
-def show_status(config):
-    evo = EvolutionEngine(config.evolution.dna_path)
-    all_dna = evo.load_all_dna()
-    if not all_dna:
-        print("No generations found.")
+def show_status(config, state_file: str = "data/population.json"):
+    """Lê o estado do Macro-organismo (ver organism.py) — não tem lógica própria."""
+    import json
+    import os
+
+    if not os.path.exists(state_file):
+        print(f"Nenhum estado de população encontrado em {state_file}.")
         return
 
-    print(f"\n📊 Evolution History — {len(all_dna)} generations\n")
-    print(f"{'Gen':>4} | {'Capital':>10} | {'Trades':>6} | {'WR':>6} | Cause of Death")
+    with open(state_file) as f:
+        data = json.load(f)
+
+    print(f"\n📊 População — atualizado em {data.get('updated_at', '?')}\n")
+    print(f"  Vivos: {data.get('population_alive', 0)} | Total já existiu: {data.get('population_total', 0)} | "
+          f"Capital vivo: ${data.get('total_capital_alive', 0):.2f}\n")
+    print(f"{'id':<11} {'pai':<11} {'ativo':<9} {'status':<6} {'capital':>9} {'clones':>7}")
     print("-" * 65)
-    for dna in all_dna:
-        print(
-            f"  {dna.generation:>2} | ${dna.final_capital:>8.2f} | "
-            f"{dna.total_trades:>6} | {dna.win_rate:>5.1%} | "
-            f"{dna.cause_of_death or 'alive'}"
-        )
+    for r in data.get("robots", []):
+        print(f"{r['id']:<11} {(r.get('parent_id') or '-'):<11} {r['symbol']:<9} {r['status']:<6} "
+              f"${r['capital']:>7.2f} {r.get('clones_generated', 0):>7}")
+        if r["status"] == "dead":
+            print(f"             -> {r.get('cause_of_death')}")
 
 
 async def run_diagnose(config):
@@ -170,7 +141,7 @@ async def run_migrate(config):
             testnet_secret=crypto.api_secret,
             mainnet_key=mainnet_key,
             mainnet_secret=mainnet_secret,
-            dna_path=config.evolution.dna_path,
+            dna_path="data/generations",
         )
         print(report.render())
     else:
@@ -178,12 +149,12 @@ async def run_migrate(config):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Darwin Agent v2.3")
-    parser.add_argument("--mode", choices=["test", "live"], default="test",
-                        help="test=paper trading, live=real money")
+    parser = argparse.ArgumentParser(description="Darwin Agent v2.3 — Organismo")
+    parser.add_argument("--symbols", default="BTCUSDT",
+                        help="Ativos, um robô raiz por símbolo (separados por vírgula)")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--status", action="store_true",
-                        help="Show evolution history")
+                        help="Mostra o estado atual da população")
     parser.add_argument("--diagnose", action="store_true",
                         help="Run Bybit connection diagnostics")
     parser.add_argument("--migrate", action="store_true",
@@ -196,8 +167,6 @@ def main():
         print(f"\n❌ Configuration error: {e}")
         print("   Fix config file and try again.")
         sys.exit(1)
-
-    set_config_context(config, args.config)
 
     if args.status:
         show_status(config)
@@ -228,12 +197,14 @@ def main():
                 print("   REFUSING to start in MAINNET mode without valid keys.")
                 sys.exit(1)
 
-    # Extra safety: refuse live mode on mainnet without --mode live explicit
+    # Nesta fase é sempre paper trading (ver CLAUDE.md) — mainnet só fornece
+    # preços reais, nunca executa ordens reais.
     for name, mc in config.markets.items():
-        if mc.enabled and not mc.testnet and args.mode != "live":
-            print(f"\n⚠️  Market '{name}' is set to MAINNET but mode is 'test'.")
-            print("   This will paper-trade using real market data from mainnet.")
-            print("   To trade with real money, use: --mode live")
+        if mc.enabled and not mc.testnet:
+            print(f"\n⚠️  Market '{name}' está em MAINNET — só será usado como fonte de "
+                  f"preços; a execução continua sempre em paper trading.")
+
+    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -253,7 +224,7 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
 
     try:
-        loop.run_until_complete(run_forever(config, args.mode))
+        loop.run_until_complete(run_forever(config, symbols))
     except (asyncio.CancelledError, KeyboardInterrupt):
         print("\n👋 Shutdown complete.")
     finally:

@@ -17,12 +17,8 @@ class MarketConfig:
 
 @dataclass
 class HealthConfig:
-    starting_hp: float = 100.0
-    instant_death_capital: float = 10.0
-    critical_capital: float = 25.0
-    critical_hp_penalty: float = 50.0
-    max_drawdown_pct: float = 20.0
-    drawdown_hp_penalty: float = 30.0
+    # Eliminação: drawdown desde o pico de capital do próprio robô.
+    death_drawdown_pct: float = 60.0
 
 
 @dataclass
@@ -37,22 +33,20 @@ class RiskConfig:
 
 
 @dataclass
-class EvolutionConfig:
-    incubation_candles: int = 200
-    min_graduation_winrate: float = 0.52
-    dna_path: str = "data/generations"
-    max_generations_memory: int = 50
-
-
-@dataclass
 class AgentConfig:
-    starting_capital: float = 50.0
+    # Regras de vida do organismo (ver CLAUDE.md — não mudar sem confirmação).
+    starting_capital: float = 5.0
+    clone_multiplier: float = 1.7  # clona quando capital >= último marco * 1.7
+
+    # Ativo em que este robô é especialista. Atribuído pelo Macro-organismo
+    # (organism.py) na hora do nascimento; cada robô opera só este símbolo.
+    symbol: str = ""
+
     markets: Dict[str, MarketConfig] = field(default_factory=lambda: {
         "crypto": MarketConfig(enabled=True, testnet=True),
     })
     health: HealthConfig = field(default_factory=HealthConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
-    evolution: EvolutionConfig = field(default_factory=EvolutionConfig)
     log_level: str = "INFO"
     heartbeat_interval: int = 60
     dashboard_port: int = 8080
@@ -61,14 +55,16 @@ class AgentConfig:
 
     def validate(self):
         errors = []
-        if self.starting_capital < 10:
-            errors.append("Starting capital must be >= $10")
+        if self.starting_capital <= 0:
+            errors.append("Starting capital must be > 0")
         if self.risk.max_position_pct > 10:
             errors.append("Max position % too high (max 10%)")
         if self.risk.min_risk_reward_ratio < 1.0:
             errors.append("Risk/reward ratio must be >= 1.0")
-        if self.health.instant_death_capital >= self.starting_capital:
-            errors.append("Death threshold must be below starting capital")
+        if not (0 < self.health.death_drawdown_pct <= 100):
+            errors.append("death_drawdown_pct must be between 0 and 100")
+        if self.clone_multiplier <= 1.0:
+            errors.append("clone_multiplier must be > 1.0")
         if not any(m.enabled for m in self.markets.values()):
             errors.append("At least one market must be enabled")
         allowed_timeframes = {"1m", "5m", "15m", "1h", "4h", "1d"}
@@ -94,6 +90,8 @@ def load_config(path: str = "config.yaml") -> AgentConfig:
 
     for key in (
         "starting_capital",
+        "clone_multiplier",
+        "symbol",
         "heartbeat_interval",
         "log_level",
         "dashboard_port",
@@ -114,8 +112,7 @@ def load_config(path: str = "config.yaml") -> AgentConfig:
                     setattr(mc, k, v)
             config.markets[name] = mc
 
-    for section, obj in [("health", config.health), ("risk", config.risk),
-                         ("evolution", config.evolution)]:
+    for section, obj in [("health", config.health), ("risk", config.risk)]:
         if section in data and data[section]:
             for k, v in data[section].items():
                 if hasattr(obj, k):
@@ -128,6 +125,8 @@ def config_to_dict(config: AgentConfig) -> Dict:
     """Serialize AgentConfig to plain dict for APIs/YAML dump."""
     return {
         "starting_capital": config.starting_capital,
+        "clone_multiplier": config.clone_multiplier,
+        "symbol": config.symbol,
         "heartbeat_interval": config.heartbeat_interval,
         "log_level": config.log_level,
         "dashboard_port": config.dashboard_port,
@@ -144,12 +143,7 @@ def config_to_dict(config: AgentConfig) -> Dict:
             for name, market in config.markets.items()
         },
         "health": {
-            "starting_hp": config.health.starting_hp,
-            "instant_death_capital": config.health.instant_death_capital,
-            "critical_capital": config.health.critical_capital,
-            "critical_hp_penalty": config.health.critical_hp_penalty,
-            "max_drawdown_pct": config.health.max_drawdown_pct,
-            "drawdown_hp_penalty": config.health.drawdown_hp_penalty,
+            "death_drawdown_pct": config.health.death_drawdown_pct,
         },
         "risk": {
             "max_position_pct": config.risk.max_position_pct,
@@ -159,12 +153,6 @@ def config_to_dict(config: AgentConfig) -> Dict:
             "default_stop_loss_pct": config.risk.default_stop_loss_pct,
             "default_take_profit_pct": config.risk.default_take_profit_pct,
             "min_risk_reward_ratio": config.risk.min_risk_reward_ratio,
-        },
-        "evolution": {
-            "incubation_candles": config.evolution.incubation_candles,
-            "min_graduation_winrate": config.evolution.min_graduation_winrate,
-            "dna_path": config.evolution.dna_path,
-            "max_generations_memory": config.evolution.max_generations_memory,
         },
     }
 

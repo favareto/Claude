@@ -20,6 +20,7 @@ data/generations/*.json
 data/logs/*.log
 data/logs/*.jsonl
 data/agent_state.json
+data/population.json
 
 # IDE
 .vscode/

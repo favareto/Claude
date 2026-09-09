@@ -8,17 +8,21 @@ from typing import Optional
 
 
 class DarwinLogger:
-    def __init__(self, generation: int = 0, log_level: str = "INFO"):
-        self.generation = generation
+    def __init__(self, label: str = "0", log_level: str = "INFO"):
+        self.label = str(label)
         self.log_dir = "data/logs"
         os.makedirs(self.log_dir, exist_ok=True)
 
-        self.logger = logging.getLogger(f"Darwin.Gen{generation}")
+        # logging.getLogger(name) is a singleton per name — each robot needs
+        # a unique label (its robot_id) so concurrent robots don't clobber
+        # each other's handlers/log files.
+        self.logger = logging.getLogger(f"Darwin.{self.label}")
         self.logger.setLevel(getattr(logging, log_level, logging.INFO))
         self.logger.handlers.clear()
+        self.logger.propagate = False
 
         fmt = logging.Formatter(
-            f"[Gen-{generation}] %(asctime)s %(levelname)s %(message)s",
+            f"[{self.label}] %(asctime)s %(levelname)s %(message)s",
             datefmt="%H:%M:%S"
         )
 
@@ -28,24 +32,24 @@ class DarwinLogger:
         self.logger.addHandler(ch)
 
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        fh = logging.FileHandler(f"{self.log_dir}/gen_{generation}_{ts}.log")
+        fh = logging.FileHandler(f"{self.log_dir}/{self.label}_{ts}.log")
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         self.logger.addHandler(fh)
 
-        self.trade_journal = f"{self.log_dir}/trades_gen_{generation}.jsonl"
+        self.trade_journal = f"{self.log_dir}/trades_{self.label}.jsonl"
 
-    def born(self, capital: float, inherited_from: Optional[int] = None):
+    def born(self, capital: float, inherited_from: Optional[str] = None):
         msg = f"BORN Capital: ${capital:.2f}"
         if inherited_from is not None:
-            msg += f" | DNA from Gen-{inherited_from}"
+            msg += f" | Clonado de {inherited_from}"
         self.logger.info(msg)
 
     def trade(self, action: str, market: str, symbol: str, amount: float,
               price: float, reason: str, result: Optional[dict] = None):
         entry = {
             "ts": datetime.now(timezone.utc).isoformat(),
-            "gen": self.generation,
+            "robot": self.label,
             "action": action,
             "market": market,
             "symbol": symbol,
