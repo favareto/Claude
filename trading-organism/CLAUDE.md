@@ -250,6 +250,29 @@ gerei uma população com uma combinação repetida (2 tentativas, 1 morte) e
 confirmei no card exatamente "2 tentativa(s) · 0 clone(s) · 1 morte(s) ·
 mortalidade 50%".
 
+**Patrimônio (gráfico de evolução do capital)** — decisão revista: o
+gráfico de preço/candle continua fora (pesa a operação sem necessidade),
+mas um gráfico de **capital por robô ao longo do tempo** foi pedido e
+construído, porque `population.json` só guarda o "agora" (sobrescrito a
+cada save) — sem histórico não dava pra desenhar curva nenhuma.
+`organism.py: Organism._record_history()` grava um snapshot append-only em
+`data/history.jsonl` (timestamp, capital de cada robô vivo, capital vivo
+total) periodicamente dentro do próprio `run_until()` (parâmetro
+`history_interval_ticks`, mais espaçado que o save de estado — não precisa
+de um ponto por tick). Nova rota `/api/history` (`dashboard.py`) expõe as
+últimas N linhas. Card novo no painel ("Patrimônio"): filtros por
+estratégia/ativo/status pra restringir a lista de robôs, um seletor com
+checkbox por robô, toggle **"Mesclar selecionados numa linha"** (soma o
+capital dos selecionados em uma única série) vs. modo padrão (uma linha
+por robô, cor própria, legenda), e um checkbox **"Global"** (linha com o
+capital vivo total da população, independente da seleção). Gráfico é SVG
+desenhado à mão em JS puro (sem lib externa, mesmo padrão do resto do
+painel — mais robusto pra deploy em VPS sem depender de CDN). Testado de
+verdade: população sintética com 5 robôs (1 clone, 1 morte por drawdown)
+ao longo de 40 pontos de histórico, screenshot via Chromium headless
+confirmando os 4 modos — Global, overlay por robô, mesclado (soma), e
+filtro por estratégia restringindo a lista sem perder a seleção já feita.
+
 ## Regras de vida do robô (fixas — não mudar sem avisar)
 
 - Capital inicial: **$5** — todo robô nasce com $5, seja ele raiz ou clone.
@@ -443,7 +466,13 @@ A documentação de arquitetura original dos autores está preservada em
     `dashboard.py` reescrito (tempo real, polling 3s), sobe junto com
     `main.py run_forever`. Testado com screenshot de verdade sobre dados
     reais (clonagem em cadeia + morte).
-12. Visualizador 2D (o "jogo" — escritório, bonequinhos, Estrategista/
+12. ~~Painel: como cada robô opera (estratégia + histórico do
+    Estrategista); posições com entrada/saída; gráfico de patrimônio por
+    robô, mesclável e com visão global.~~ Feito — ver seção "Painel de
+    apurações" acima (cards "Como cada robô opera", "Posições", e
+    "Patrimônio" com `/api/history`, `Organism._record_history()`, SVG
+    puro em JS).
+13. Visualizador 2D (o "jogo" — escritório, bonequinhos, Estrategista/
     Investigador/Macro-organismo como estações especiais): decisão de
     design pendente sobre como lidar com escala (população sem teto vs.
     tela renderizável) antes de escrever qualquer código — ver seção

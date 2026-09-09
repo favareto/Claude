@@ -82,6 +82,7 @@ class Organism:
         self.professor = Professor()
         self._real_adapter_factory = real_adapter_factory
         self.state_file = state_file
+        self.history_file = os.path.join(os.path.dirname(state_file) or ".", "history.jsonl")
         self.heartbeat_by_timeframe = heartbeat_by_timeframe
 
         self.agents: Dict[str, DarwinAgentV2] = {}
@@ -299,6 +300,34 @@ class Organism:
             json.dump(data, f, indent=2)
         os.replace(tmp, self.state_file)
 
+    def _record_history(self):
+        """Grava um snapshot no tempo (append-only, `data/history.jsonl`) —
+        `population.json` só guarda o "agora" (sobrescrito a cada save), sem
+        isso não tem como desenhar o gráfico de patrimônio de cada robô ao
+        longo do tempo no painel. Um snapshot por robô vivo + o total global,
+        por linha de JSON, pra poder ler incrementalmente sem carregar tudo."""
+        self._sync_alive_records()
+        alive = [r for r in self.records.values() if r.status == "alive"]
+        snapshot = {
+            "ts": _utcnow().isoformat(),
+            "total_capital_alive": round(sum(r.capital for r in alive), 2),
+            "population_alive": len(alive),
+            "robots": [
+                {
+                    "id": r.id, "symbol": r.symbol, "strategy_name": r.strategy_name,
+                    "parent_id": r.parent_id, "capital": round(r.capital, 4),
+                }
+                for r in alive
+            ],
+        }
+        directory = os.path.dirname(self.history_file) or "."
+        os.makedirs(directory, exist_ok=True)
+        try:
+            with open(self.history_file, "a") as f:
+                f.write(json.dumps(snapshot) + "\n")
+        except Exception:
+            pass
+
     def summary(self) -> dict:
         self._sync_alive_records()
         alive = [r for r in self.records.values() if r.status == "alive"]
@@ -313,16 +342,23 @@ class Organism:
     # ── Execução ─────────────────────────────────────────────────
 
     async def run_until(self, condition: Callable[["Organism"], bool],
-                        check_interval: float = 1.0, save_interval_ticks: int = 5):
+                        check_interval: float = 1.0, save_interval_ticks: int = 5,
+                        history_interval_ticks: int = 30):
         """Roda a população até `condition(self)` retornar True ou a
-        população inteira ser extinta."""
+        população inteira ser extinta. `history_interval_ticks` controla de
+        quanto em quanto tempo grava um ponto no histórico de patrimônio
+        (mais espaçado que o save de estado — não precisa de um ponto por
+        tick, só o suficiente pra desenhar a curva no painel)."""
         tick = 0
         while self.agents and not condition(self):
             await asyncio.sleep(check_interval)
             tick += 1
             if tick % save_interval_ticks == 0:
                 self._save_state()
+            if tick % history_interval_ticks == 0:
+                self._record_history()
         self._save_state()
+        self._record_history()
 
     async def shutdown(self):
         for task in list(self.tasks.values()):

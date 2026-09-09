@@ -87,7 +87,7 @@ async def main_async(n_robots: int, seconds: float, heartbeat: float, symbols):
     def timed_out(_org):
         return asyncio.get_event_loop().time() - start >= seconds
 
-    await organism.run_until(timed_out, check_interval=0.5)
+    await organism.run_until(timed_out, check_interval=0.5, history_interval_ticks=4)
     await organism.shutdown()
     _print_report(organism)
     print(f"\nEstado completo salvo em: {organism.state_file}")
