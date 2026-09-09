@@ -20,8 +20,10 @@ from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
+from darwin_agent.backtest import BacktestResult, run_backtest
 from darwin_agent.core.agent_v2 import DarwinAgentV2
 from darwin_agent.investigator import StrategyProposal
+from darwin_agent.markets.base import TimeFrame
 from darwin_agent.professor import Professor
 from darwin_agent.strategist import Strategist, StrategyReview, TrackRecord
 from darwin_agent.utils.config import AgentConfig
@@ -68,6 +70,10 @@ class RobotRecord:
     strategy_entry_rule: str = ""
     strategy_exit_rule: str = ""
     strategy_risk_management: str = ""
+    # Resumo do backtest sobre candles históricos ANTES do robô nascer
+    # (Sala de Risco, camada 0 — ver backtest.py e Strategist.judge_backtest).
+    # None quando não havia dados históricos suficientes na hora.
+    backtest_summary: Optional[dict] = None
 
 
 class Organism:
@@ -89,6 +95,13 @@ class Organism:
         self.records: Dict[str, RobotRecord] = {}
         self.tasks: Dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
+
+        # Sala de Risco — pedidos de clonagem/otimização bloqueados por
+        # teto (nicho ou população), esperando uma vaga liberar por morte
+        # (ver `_handle_clone`/`_handle_death`/`_drain_pending_clones`).
+        # Cada item: {kind: "clone"|"variant", base_robot_id, strategy_id,
+        # symbol, timeframe, params (só variant), queued_at}.
+        self._pending_clones: List[dict] = []
 
     # ── Nascimento / clonagem / morte ──────────────────────────────
 
@@ -118,6 +131,87 @@ class Organism:
         await self._spawn(robot_id, symbol, strategy_name, parent=None,
                           timeframe=timeframe, strategy_id=f"{strategy_name}:manual-spawn")
         return robot_id
+
+    # ── Sala de Risco — fatos sobre concentração (o Estrategista julga) ──
+
+    def _niche_key(self, strategy_id: str, symbol: str) -> str:
+        """Identifica uma "aposta repetida": mesma proposta exata
+        (indicadores/params/nome — não só a família 'momentum') no mesmo
+        ativo. Uma otimização (`suggest_optimization`) gera um `strategy_id`
+        novo, logo vira um nicho próprio, com seu próprio teto."""
+        return f"{strategy_id}|{symbol}"
+
+    def _alive_count_in_niche(self, niche_key: str) -> int:
+        return sum(1 for r in self.records.values()
+                  if r.status == "alive" and self._niche_key(r.strategy_id, r.symbol) == niche_key)
+
+    def _alive_count_total(self) -> int:
+        return sum(1 for r in self.records.values() if r.status == "alive")
+
+    def _best_in_niche(self, niche_key: str) -> Optional[RobotRecord]:
+        """Robô vivo de maior capital nesse nicho — base pra uma otimização
+        partir do que já provou ser o melhor, não de um membro qualquer."""
+        candidates = [r for r in self.records.values()
+                     if r.status == "alive" and self._niche_key(r.strategy_id, r.symbol) == niche_key]
+        return max(candidates, key=lambda r: r.capital) if candidates else None
+
+    def _risk_room_report(self) -> dict:
+        """Visão da Sala de Risco pro painel: quanto da capacidade (por
+        nicho e global) está em uso, e onde está a concentração — é a base
+        pra decidir apertar/afrouxar os tetos no futuro."""
+        alive = [r for r in self.records.values() if r.status == "alive"]
+        niches: Dict[str, dict] = {}
+        assets: Dict[str, dict] = {}
+        for r in alive:
+            nk = self._niche_key(r.strategy_id, r.symbol)
+            n = niches.setdefault(nk, {
+                "niche": nk, "strategy_name": r.strategy_name, "strategy_id": r.strategy_id,
+                "symbol": r.symbol, "count": 0, "capital": 0.0,
+            })
+            n["count"] += 1
+            n["capital"] = round(n["capital"] + r.capital, 2)
+            a = assets.setdefault(r.symbol, {"symbol": r.symbol, "count": 0, "capital": 0.0})
+            a["count"] += 1
+            a["capital"] = round(a["capital"] + r.capital, 2)
+        return {
+            "population_alive": len(alive),
+            "population_cap": self.strategist.MAX_POPULATION_ALIVE,
+            "niche_cap": self.strategist.MAX_ROBOTS_PER_NICHE,
+            "pending_count": len(self._pending_clones),
+            "niches_at_cap": sum(1 for n in niches.values() if n["count"] >= self.strategist.MAX_ROBOTS_PER_NICHE),
+            "by_niche": sorted(niches.values(), key=lambda n: -n["count"])[:30],
+            "by_asset": sorted(assets.values(), key=lambda a: -a["count"])[:30],
+        }
+
+    async def _run_backtest(self, strategy_name: str, params: dict, symbol: str,
+                            timeframe: str) -> Optional[BacktestResult]:
+        """Sala de Risco, camada 0 — busca candles históricos reais (via o
+        mesmo adapter que os robôs usariam) e roda `backtest.run_backtest`.
+        Não levanta exceção nem bloqueia o nascimento se não conseguir
+        dados (rede fora do ar, símbolo novo demais): retorna None e o
+        Estrategista (`judge_backtest`) segue sem essa camada."""
+        try:
+            mc = next((m for m in self.base_config.markets.values() if m.enabled), None)
+            if mc is None:
+                return None
+            if self._real_adapter_factory:
+                adapter = self._real_adapter_factory(mc)
+            else:
+                from darwin_agent.markets.crypto import BybitAdapter
+                adapter = BybitAdapter({"api_key": mc.api_key, "api_secret": mc.api_secret, "testnet": mc.testnet})
+            if not await adapter.connect():
+                return None
+            try:
+                tf = TimeFrame(timeframe)
+            except ValueError:
+                tf = TimeFrame.M15
+            candles = await adapter.get_candles(symbol, tf, limit=300)
+            if len(candles) < 80:
+                return None
+            return run_backtest(candles, strategy_name, params, symbol, tf)
+        except Exception as e:
+            print(f"[Sala de Risco] backtest indisponível pra {symbol}/{strategy_name}: {e}")
+            return None
 
     def _track_record(self, strategy_name: str, symbol: str) -> TrackRecord:
         """Histórico real dessa combinação (estratégia, ativo) na população
@@ -172,9 +266,26 @@ class Organism:
         if not ok:
             return None, reason
 
+        # Sala de Risco — teto global e de concentração por nicho, ANTES de
+        # gastar tempo com backtest (checagem cara por último).
+        ok, cap_reason = self.strategist.check_population_capacity(self._alive_count_total())
+        if not ok:
+            return None, cap_reason
+        niche_key = self._niche_key(proposal.strategy_id, symbol)
+        ok, cap_reason = self.strategist.check_niche_capacity(self._alive_count_in_niche(niche_key))
+        if not ok:
+            return None, cap_reason
+
         # Professor monta o currículo: pega a estratégia genérica e adapta
         # os parâmetros pro ativo específico deste robô (ver professor.py).
         curriculum = self.professor.build_curriculum(proposal, symbol)
+
+        # Sala de Risco, camada 0 — backtest sobre candles históricos ANTES
+        # de arriscar capital real (ver backtest.py, Strategist.judge_backtest).
+        backtest_result = await self._run_backtest(proposal.implementation, curriculum, symbol, proposal.timeframe)
+        ok, bt_reason = self.strategist.judge_backtest(backtest_result)
+        if not ok:
+            return None, bt_reason
 
         robot_id = f"r-{uuid.uuid4().hex[:8]}"
         await self._spawn(robot_id, symbol, proposal.implementation, parent=None,
@@ -184,9 +295,10 @@ class Organism:
                           strategy_indicators=list(proposal.indicators),
                           strategy_entry_rule=proposal.entry_rule,
                           strategy_exit_rule=proposal.exit_rule,
-                          strategy_risk_management=proposal.risk_management)
+                          strategy_risk_management=proposal.risk_management,
+                          backtest_summary=asdict(backtest_result) if backtest_result else None)
         self.strategist.register_strategy_attempt(proposal.strategy_id)
-        return robot_id, f"{admit_reason} | {reason}"
+        return robot_id, f"{admit_reason} | {reason} | {bt_reason}"
 
     async def _spawn(self, robot_id: str, symbol: str, strategy_name: str,
                      parent: Optional[DarwinAgentV2], strategy_source: str = "",
@@ -194,7 +306,8 @@ class Organism:
                      strategy_params: Optional[dict] = None,
                      strategy_indicators: Optional[List[str]] = None,
                      strategy_entry_rule: str = "", strategy_exit_rule: str = "",
-                     strategy_risk_management: str = ""):
+                     strategy_risk_management: str = "",
+                     backtest_summary: Optional[dict] = None):
         cfg = self._new_config(symbol, timeframe)
         agent = DarwinAgentV2(
             config=cfg,
@@ -222,25 +335,126 @@ class Organism:
                 strategy_indicators=strategy_indicators or [],
                 strategy_entry_rule=strategy_entry_rule, strategy_exit_rule=strategy_exit_rule,
                 strategy_risk_management=strategy_risk_management,
+                backtest_summary=backtest_summary,
             )
             self.tasks[robot_id] = asyncio.create_task(agent.run())
         self._save_state()
 
     async def _handle_clone(self, parent: DarwinAgentV2):
-        clone_id = f"r-{uuid.uuid4().hex[:8]}"
         parent_rec = self.records.get(parent.robot_id)
-        await self._spawn(clone_id, parent.symbol, parent.strategy_name, parent,
-                          strategy_source=parent_rec.strategy_source if parent_rec else "",
-                          strategy_id=parent_rec.strategy_id if parent_rec else "",
-                          timeframe=parent_rec.timeframe if parent_rec else "15m",
-                          strategy_params=parent.strategy_params,
-                          strategy_indicators=parent_rec.strategy_indicators if parent_rec else [],
-                          strategy_entry_rule=parent_rec.strategy_entry_rule if parent_rec else "",
-                          strategy_exit_rule=parent_rec.strategy_exit_rule if parent_rec else "",
-                          strategy_risk_management=parent_rec.strategy_risk_management if parent_rec else "")
-        # Clonagem (+70%) é o sinal de sucesso — promove a estratégia no ranking.
-        if parent_rec and parent_rec.strategy_id:
+        if not parent_rec:
+            return
+
+        # Clonagem (+70%) é sempre sinal de sucesso da ESTRATÉGIA, mesmo
+        # quando a Sala de Risco impede uma réplica física agora — promove
+        # incondicionalmente.
+        if parent_rec.strategy_id:
             self.strategist.promote_strategy(parent_rec.strategy_id)
+
+        niche_key = self._niche_key(parent_rec.strategy_id, parent_rec.symbol)
+        niche_ok, _ = self.strategist.check_niche_capacity(self._alive_count_in_niche(niche_key))
+
+        if niche_ok:
+            await self._spawn_exact_clone(parent, parent_rec)
+        else:
+            await self._spawn_optimization(parent, parent_rec, niche_key)
+
+    async def _spawn_exact_clone(self, parent: DarwinAgentV2, parent_rec: RobotRecord):
+        pop_ok, _ = self.strategist.check_population_capacity(self._alive_count_total())
+        if not pop_ok:
+            self._pending_clones.append({
+                "kind": "clone", "base_robot_id": parent.robot_id,
+                "strategy_id": parent_rec.strategy_id, "symbol": parent_rec.symbol,
+                "timeframe": parent_rec.timeframe, "params": None,
+                "queued_at": _utcnow().isoformat(),
+            })
+            return
+        clone_id = f"r-{uuid.uuid4().hex[:8]}"
+        await self._spawn(clone_id, parent.symbol, parent.strategy_name, parent,
+                          strategy_source=parent_rec.strategy_source,
+                          strategy_id=parent_rec.strategy_id, timeframe=parent_rec.timeframe,
+                          strategy_params=parent.strategy_params,
+                          strategy_indicators=parent_rec.strategy_indicators,
+                          strategy_entry_rule=parent_rec.strategy_entry_rule,
+                          strategy_exit_rule=parent_rec.strategy_exit_rule,
+                          strategy_risk_management=parent_rec.strategy_risk_management)
+
+    async def _spawn_optimization(self, parent: DarwinAgentV2, parent_rec: RobotRecord, niche_key: str):
+        """Nicho no teto (MAX_ROBOTS_PER_NICHE robôs vivos já apostando a
+        mesma coisa) — em vez de mais uma cópia idêntica, o Estrategista
+        propõe uma pequena otimização a partir do melhor desempenho já
+        observado nesse nicho (ver `Strategist.suggest_optimization`). O
+        resultado é um `strategy_id` novo — um nicho PRÓPRIO, com seu
+        próprio teto, então não some no meio da concentração que motivou a
+        otimização."""
+        base_rec = self._best_in_niche(niche_key) or parent_rec
+        base_agent = self.agents.get(base_rec.id, parent)
+        mutated_params = self.strategist.suggest_optimization(base_rec.strategy_params or {})
+        variant_strategy_id = self.strategist.variant_strategy_id(base_rec.strategy_id, mutated_params)
+
+        pop_ok, _ = self.strategist.check_population_capacity(self._alive_count_total())
+        if not pop_ok:
+            self._pending_clones.append({
+                "kind": "variant", "base_robot_id": base_rec.id,
+                "strategy_id": variant_strategy_id, "symbol": base_rec.symbol,
+                "timeframe": base_rec.timeframe, "params": mutated_params,
+                "queued_at": _utcnow().isoformat(),
+            })
+            return
+
+        clone_id = f"r-{uuid.uuid4().hex[:8]}"
+        await self._spawn(clone_id, base_rec.symbol, base_agent.strategy_name, base_agent,
+                          strategy_source=f"{base_rec.strategy_source} — otimização automática "
+                                        f"(nicho no limite de {self.strategist.MAX_ROBOTS_PER_NICHE})",
+                          strategy_id=variant_strategy_id, timeframe=base_rec.timeframe,
+                          strategy_params=mutated_params,
+                          strategy_indicators=base_rec.strategy_indicators,
+                          strategy_entry_rule=base_rec.strategy_entry_rule,
+                          strategy_exit_rule=base_rec.strategy_exit_rule,
+                          strategy_risk_management=base_rec.strategy_risk_management)
+
+    async def _drain_pending_clones(self, freed_niche_key: str):
+        """Uma morte libera exatamente uma vaga — na população global, e às
+        vezes também no nicho específico de quem morreu. Atende primeiro
+        quem esperava por ESSE nicho (fila FIFO); se não havia ninguém
+        esperando por ele, atende o pedido mais antigo da fila cujo nicho
+        (se for clone exato) ainda tenha espaço."""
+        if not self._pending_clones:
+            return
+        pop_ok, _ = self.strategist.check_population_capacity(self._alive_count_total())
+        if not pop_ok:
+            return
+
+        for i, req in enumerate(self._pending_clones):
+            if req["kind"] == "clone" and self._niche_key(req["strategy_id"], req["symbol"]) == freed_niche_key:
+                await self._fulfill_pending(self._pending_clones.pop(i))
+                return
+
+        for i, req in enumerate(self._pending_clones):
+            if req["kind"] == "variant":
+                await self._fulfill_pending(self._pending_clones.pop(i))
+                return
+            niche_ok, _ = self.strategist.check_niche_capacity(
+                self._alive_count_in_niche(self._niche_key(req["strategy_id"], req["symbol"])))
+            if niche_ok:
+                await self._fulfill_pending(self._pending_clones.pop(i))
+                return
+
+    async def _fulfill_pending(self, req: dict):
+        base_agent = self.agents.get(req["base_robot_id"])
+        base_rec = self.records.get(req["base_robot_id"])
+        if not base_agent or not base_rec or base_rec.status != "alive":
+            return  # a base morreu/sumiu enquanto esperava vaga — descarta o pedido
+        is_variant = req["kind"] == "variant"
+        clone_id = f"r-{uuid.uuid4().hex[:8]}"
+        await self._spawn(clone_id, base_rec.symbol, base_agent.strategy_name, base_agent,
+                          strategy_source=base_rec.strategy_source + (" — otimização automática" if is_variant else ""),
+                          strategy_id=req["strategy_id"], timeframe=base_rec.timeframe,
+                          strategy_params=req["params"] if is_variant else base_agent.strategy_params,
+                          strategy_indicators=base_rec.strategy_indicators,
+                          strategy_entry_rule=base_rec.strategy_entry_rule,
+                          strategy_exit_rule=base_rec.strategy_exit_rule,
+                          strategy_risk_management=base_rec.strategy_risk_management)
 
     async def _handle_death(self, robot: DarwinAgentV2, cause: str):
         async with self._lock:
@@ -261,6 +475,10 @@ class Organism:
         # Eliminação (-60% do pico) rebaixa a estratégia no ranking.
         if rec and rec.strategy_id:
             self.strategist.demote_strategy(rec.strategy_id)
+        # Sala de Risco — a morte libera uma vaga (nesse nicho e na
+        # população global); atende quem estava esperando, se houver.
+        if rec:
+            await self._drain_pending_clones(self._niche_key(rec.strategy_id, rec.symbol))
         self._save_state()
 
     # ── Estado / persistência ───────────────────────────────────────
@@ -292,6 +510,7 @@ class Organism:
             "leaderboard_capacity": leaderboard.capacity,
             "leaderboard_top": [e.to_dict() for e in leaderboard.top(20)],
             "track_records": self._all_track_records(),
+            "risk_room": self._risk_room_report(),
         }
         directory = os.path.dirname(self.state_file) or "."
         os.makedirs(directory, exist_ok=True)

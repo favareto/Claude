@@ -23,9 +23,13 @@ Hoje o julgamento determinístico (RiskManager + histórico de sobrevivência
 dá nuance de verdade, sem mudar quem chama.
 """
 
+import hashlib
+import json
+import random
 from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 
+from darwin_agent.backtest import BacktestResult
 from darwin_agent.investigator import StrategyProposal
 from darwin_agent.leaderboard import StrategyLeaderboard
 from darwin_agent.markets.base import MarketSignal
@@ -67,6 +71,29 @@ class Strategist:
     # pequena demais não é evidência.
     MIN_ATTEMPTS_BEFORE_JUDGING = 3
     MAX_DEATH_RATE = 0.75
+
+    # Sala de Risco (ver CLAUDE.md) — o Estrategista toma conta dos tetos de
+    # concentração. Revisão explícita da regra "sem limite de multiplicação"
+    # pra conter exposição CORRELACIONADA: um nicho (mesma estratégia+ativo)
+    # que já tem MAX_ROBOTS_PER_NICHE robôs vivos apostando a mesma coisa ao
+    # mesmo tempo não ganha mais réplicas idênticas — a partir daí, pressão
+    # de clonagem vira pedido de pequena otimização (`suggest_optimization`),
+    # não duplicação. A seleção continua sem teto (nicho provado nunca é
+    # "demitido" por estar cheio, só para de clonar identicamente); o que
+    # ganhou teto é a CONCENTRAÇÃO EM UMA ÚNICA APOSTA repetida.
+    MAX_ROBOTS_PER_NICHE = 10
+    # Teto global de robôs vivos simultâneos — contém o capital real total
+    # sob gestão (cada robô vivo é uma conta real operando, mesmo que a
+    # aposta por trade continue ancorada em `starting_capital`).
+    MAX_POPULATION_ALIVE = 180
+    OPTIMIZATION_JITTER = 0.15  # +-15% nos parâmetros numéricos por otimização
+
+    # Sala de Risco, camada 0 (backtest antes de nascer) — amostra mínima
+    # de trades históricos pra dizer alguma coisa; abaixo disso o backtest é
+    # inconclusivo e não bloqueia sozinho.
+    MIN_BACKTEST_TRADES = 5
+    MIN_BACKTEST_WIN_RATE = 0.35
+    MAX_BACKTEST_LOSS_PCT = -20.0
 
     def __init__(self, risk_config: RiskConfig):
         self._risk_config = risk_config
@@ -163,6 +190,66 @@ class Strategist:
                 )
 
         return True, f"Proposta '{proposal.name}' aprovada — avatar nascerá especialista em {proposal.implementation}/{symbol}"
+
+    # ── Sala de Risco (concentração + backtest) ─────────────────────
+
+    def check_niche_capacity(self, niche_alive: int) -> Tuple[bool, str]:
+        """Camada de concentração — quantos robôs vivos já apostam
+        exatamente essa combinação (estratégia+ativo) agora. Acima do
+        teto, a pressão de clonagem deve virar otimização, não duplicação
+        (ver `suggest_optimization`)."""
+        if niche_alive >= self.MAX_ROBOTS_PER_NICHE:
+            return False, f"nicho no limite da Sala de Risco ({niche_alive}/{self.MAX_ROBOTS_PER_NICHE} vivos apostando a mesma coisa)"
+        return True, "nicho com capacidade"
+
+    def check_population_capacity(self, population_alive: int) -> Tuple[bool, str]:
+        """Teto global — quantos robôs vivos (contas reais operando) no
+        total, não só neste nicho."""
+        if population_alive >= self.MAX_POPULATION_ALIVE:
+            return False, f"população no teto da Sala de Risco ({population_alive}/{self.MAX_POPULATION_ALIVE} vivos)"
+        return True, "população com capacidade"
+
+    def suggest_optimization(self, base_params: dict) -> dict:
+        """Nicho já provado (no limite de robôs vivos) — em vez de mais uma
+        cópia idêntica, testa uma pequena variação nos parâmetros numéricos
+        (jitter aleatório de +-OPTIMIZATION_JITTER) a partir do robô de
+        melhor desempenho atual do nicho (ver `Organism._best_in_niche`).
+        V1 deliberadamente simples (perturbação aleatória, não guiada por
+        gradiente/atribuição por parâmetro) — suficiente pra começar a
+        explorar o espaço ao redor de uma estratégia que já provou valor."""
+        mutated = dict(base_params)
+        for key, value in base_params.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            jitter = 1 + random.uniform(-self.OPTIMIZATION_JITTER, self.OPTIMIZATION_JITTER)
+            new_value = value * jitter
+            mutated[key] = round(new_value) if isinstance(value, int) else round(new_value, 4)
+        return mutated
+
+    @staticmethod
+    def variant_strategy_id(base_strategy_id: str, params: dict) -> str:
+        """ID novo pra uma otimização — vira um nicho PRÓPRIO (attempts=0),
+        com seu próprio teto de MAX_ROBOTS_PER_NICHE, separado do original."""
+        digest = hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()[:6]
+        return f"{base_strategy_id}~opt{digest}"
+
+    def judge_backtest(self, result: Optional[BacktestResult]) -> Tuple[bool, str]:
+        """Sala de Risco, camada 0 — antes de qualquer capital real, o
+        Estrategista olha o backtest sobre candles históricos
+        (`backtest.py: run_backtest`). Sem dados (rede fora do ar, símbolo
+        novo demais) ou amostra pequena demais não é motivo de recusa —
+        só corta o que já nasce obviamente quebrado."""
+        if result is None:
+            return True, "sem dados históricos suficientes pra backtest — segue sem essa camada"
+        if result.trades < self.MIN_BACKTEST_TRADES:
+            return True, f"backtest inconclusivo ({result.trades} trades históricos) — não é motivo de recusa sozinho"
+        if result.win_rate < self.MIN_BACKTEST_WIN_RATE or result.total_return_pct <= self.MAX_BACKTEST_LOSS_PCT:
+            return False, (
+                f"Estrategista recusou pelo backtest: {result.trades} trades históricos, "
+                f"{result.win_rate:.0%} de acerto, retorno {result.total_return_pct:+.1f}% — "
+                f"não vale arriscar capital real nessa combinação"
+            )
+        return True, f"backtest ok: {result.trades} trades históricos, {result.win_rate:.0%} de acerto"
 
     def validate_entry(self, robot_id: str, signal: MarketSignal, capital: float,
                        open_positions: int) -> Tuple[bool, str]:

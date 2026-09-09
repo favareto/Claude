@@ -188,6 +188,16 @@ tbody tr:hover{background:#161c26}
 .eq-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:11px;color:var(--d)}
 .eq-legend .li{display:flex;align-items:center;gap:5px}
 .eq-empty-list{color:var(--d);font-size:11px;padding:6px;text-align:center}
+.risk-caps{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+@media(max-width:700px){.risk-caps{grid-template-columns:1fr}}
+.risk-cap-box .rc-label{display:flex;justify-content:space-between;font-size:11px;color:var(--d);margin-bottom:4px}
+.risk-cap-box .rc-bar{height:10px;background:var(--b);border-radius:5px;overflow:hidden}
+.risk-cap-box .rc-fill{height:100%;background:var(--bl);transition:width .3s}
+.risk-cap-box .rc-fill.warn{background:var(--y)}
+.risk-cap-box .rc-fill.full{background:var(--r)}
+.risk-pending{margin-bottom:10px;font-size:11px;color:var(--y)}
+.risk-tables{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.risk-tables{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -202,6 +212,37 @@ tbody tr:hover{background:#161c26}
 <div class="stat"><div class="n" id="st-total">-</div><div class="l">Já existiram</div></div>
 <div class="stat"><div class="n bl" id="st-capital">-</div><div class="l">Capital vivo</div></div>
 <div class="stat"><div class="n y" id="st-lb">-</div><div class="l">Estratégias no ranking</div></div>
+</div>
+
+<div class="card">
+<h2><span>Sala de Risco (Estrategista) — tetos de concentração</span><span class="mono" id="risk-updated"></span></h2>
+<div class="risk-caps">
+  <div class="risk-cap-box">
+    <div class="rc-label"><span>População viva</span><span id="risk-pop-label">-</span></div>
+    <div class="rc-bar"><div class="rc-fill" id="risk-pop-fill"></div></div>
+  </div>
+  <div class="risk-cap-box">
+    <div class="rc-label"><span>Nichos no limite (estratégia+ativo)</span><span id="risk-niche-label">-</span></div>
+    <div class="rc-bar"><div class="rc-fill" id="risk-niche-fill"></div></div>
+  </div>
+</div>
+<div class="risk-pending" id="risk-pending"></div>
+<div class="risk-tables">
+  <div>
+    <div class="mono" style="color:var(--d);font-size:11px;margin-bottom:6px">CONCENTRAÇÃO POR NICHO (estratégia+ativo)</div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>Estratégia</th><th>Ativo</th><th>Vivos</th><th>Capital</th></tr></thead>
+      <tbody id="risk-niche-body"></tbody>
+    </table></div>
+  </div>
+  <div>
+    <div class="mono" style="color:var(--d);font-size:11px;margin-bottom:6px">CONCENTRAÇÃO POR ATIVO</div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>Ativo</th><th>Robôs vivos</th><th>Capital</th></tr></thead>
+      <tbody id="risk-asset-body"></tbody>
+    </table></div>
+  </div>
+</div>
 </div>
 
 <div class="card">
@@ -284,6 +325,46 @@ function fmtDurationSec(s){
   if(h>0) return h+'h '+m+'m';
   if(m>0) return m+'m '+s+'s';
   return s+'s';
+}
+
+function renderRiskRoom(rr){
+  if(!rr){
+    document.getElementById('risk-pop-label').textContent='-';
+    document.getElementById('risk-niche-label').textContent='-';
+    document.getElementById('risk-pending').textContent='';
+    document.getElementById('risk-niche-body').innerHTML='<tr><td colspan="4" class="empty">-</td></tr>';
+    document.getElementById('risk-asset-body').innerHTML='<tr><td colspan="3" class="empty">-</td></tr>';
+    return;
+  }
+  const popPct = rr.population_cap ? Math.min(100, rr.population_alive/rr.population_cap*100) : 0;
+  document.getElementById('risk-pop-label').textContent = rr.population_alive+' / '+rr.population_cap;
+  const popFill = document.getElementById('risk-pop-fill');
+  popFill.style.width = popPct+'%';
+  popFill.className = 'rc-fill' + (popPct>=100?' full':popPct>=80?' warn':'');
+
+  const nichesTotal = (rr.by_niche||[]).length || 1;
+  const nichePct = Math.min(100, rr.niches_at_cap / nichesTotal * 100);
+  document.getElementById('risk-niche-label').textContent = rr.niches_at_cap+' de '+(rr.by_niche||[]).length+' nicho(s) ativo(s) (teto '+rr.niche_cap+'/nicho)';
+  const nicheFill = document.getElementById('risk-niche-fill');
+  nicheFill.style.width = nichePct+'%';
+  nicheFill.className = 'rc-fill' + (nichePct>=100?' full':nichePct>=50?' warn':'');
+
+  document.getElementById('risk-pending').textContent = rr.pending_count>0
+    ? `⏳ ${rr.pending_count} pedido(s) de clonagem/otimização esperando vaga (teto atingido)` : '';
+
+  const niches = rr.by_niche||[];
+  document.getElementById('risk-niche-body').innerHTML = niches.length ? niches.map(n=>`
+    <tr>
+      <td>${esc(n.strategy_name)}${n.strategy_id && n.strategy_id.includes('~opt')?' <span class="badge bb">otimização</span>':''}</td>
+      <td>${esc(n.symbol)}</td>
+      <td class="${n.count>=rr.niche_cap?'r':''}">${n.count}/${rr.niche_cap}</td>
+      <td>${money(n.capital)}</td>
+    </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhum robô vivo ainda</td></tr>';
+
+  const assets = rr.by_asset||[];
+  document.getElementById('risk-asset-body').innerHTML = assets.length ? assets.map(a=>`
+    <tr><td>${esc(a.symbol)}</td><td>${a.count}</td><td>${money(a.capital)}</td></tr>`).join('')
+    : '<tr><td colspan="3" class="empty">Nenhum robô vivo ainda</td></tr>';
 }
 
 let robotMeta = {};       // id -> {symbol, strategy_name, status, capital}
@@ -467,6 +548,7 @@ async function tick(){
       document.getElementById('lb-body').innerHTML='<tr><td colspan="8" class="empty">-</td></tr>';
       document.getElementById('ops-grid').innerHTML='<div class="empty">-</div>';
       document.getElementById('eq-picker').innerHTML='<div class="eq-empty-list">-</div>';
+      renderRiskRoom(null);
       return;
     }
 
@@ -508,6 +590,8 @@ async function tick(){
         <td>${fmtDuration(rb.born_at, rb.died_at)}</td>
         <td class="death">${rb.status==='dead' ? esc(rb.cause_of_death||'-') : ''}</td>
       </tr>`).join('') : '<tr><td colspan="14" class="empty">Nenhum robô nasceu ainda</td></tr>';
+
+    renderRiskRoom(d.risk_room);
 
     robotMeta = {};
     for(const rb of robots){

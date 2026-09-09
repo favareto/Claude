@@ -273,6 +273,80 @@ ao longo de 40 pontos de histórico, screenshot via Chromium headless
 confirmando os 4 modos — Global, overlay por robô, mesclado (soma), e
 filtro por estratégia restringindo a lista sem perder a seleção já feita.
 
+### 8. Sala de Risco (Estrategista toma conta)
+
+Motivada por um problema real identificado na própria arquitetura: seleção
+por multiplicação sem controle de concentração significa que uma estratégia
+vencedora pode virar dezenas de robôs apostando exatamente a mesma coisa,
+no mesmo ativo, ao mesmo tempo — se o mercado se mover contra essa aposta,
+todos morrem juntos (drawdown correlacionado), não um por um como a regra
+de eliminação individual (-60% do pico) sozinha sugere. A Sala de Risco é
+essa camada de contenção — toda a autoridade de decisão vive em
+`strategist.py: Strategist` (constantes e métodos abaixo), o `organism.py`
+só apura os fatos (contagens) e executa.
+
+**Camada 1 — teto por nicho (`MAX_ROBOTS_PER_NICHE = 10`)**: no máximo 10
+robôs vivos simultâneos numa combinação EXATA de estratégia+ativo
+(`Organism._niche_key` — mesmo `strategy_id`, não só a família
+"momentum"). Quando um robô bate +70% e o nicho dele já está no teto
+(`Strategist.check_niche_capacity`), a clonagem não gera uma cópia
+idêntica — vira um pedido de otimização.
+
+**Otimização automática (`Strategist.suggest_optimization`)**: parte do
+robô de MAIOR capital atual no nicho saturado (`Organism._best_in_niche`,
+não do robô que disparou o evento) e aplica um jitter aleatório de ±15%
+nos parâmetros numéricos da estratégia. O resultado ganha um `strategy_id`
+novo (`Strategist.variant_strategy_id`, hash dos parâmetros) — ou seja,
+vira um NICHO PRÓPRIO, com attempts=0 e seu próprio teto de 10, sem
+competir pela cota do nicho que o originou. V1 deliberadamente simples
+(perturbação aleatória, não guiada por atribuição de qual parâmetro
+historicamente correlaciona com melhor resultado) — um próximo passo
+natural de evolução, não construído ainda.
+
+**Camada 2 — teto global (`MAX_POPULATION_ALIVE = 180`)**: no máximo 180
+robôs vivos no total, qualquer nicho. Contém o capital real total sob
+gestão (cada robô vivo é uma conta operando de verdade, mesmo que a aposta
+por trade continue ancorada em `starting_capital`).
+
+**Fila de espera, não recusa definitiva**: um pedido de clone/otimização
+barrado só por teto (não por mérito) entra em `Organism._pending_clones`
+(FIFO) em vez de ser descartado. Toda morte real (-60% do pico) libera
+exatamente uma vaga — `Organism._drain_pending_clones` primeiro tenta
+atender quem esperava pelo MESMO nicho que acabou de perder um robô,
+senão atende o pedido mais antigo da fila que já cabe. Se o robô-base de
+um pedido morrer enquanto espera, o pedido é descartado (não faz sentido
+clonar de quem não existe mais).
+
+**Camada 0 — backtest antes de nascer (`backtest.py`)**: antes de QUALQUER
+proposta nova arriscar capital real (mesmo só $5), roda a mesma lógica de
+análise que o robô usaria ao vivo (`strategies/base.py: Strategy.analyze`)
+sobre candles históricos reais (mesmo adapter que os robôs usam,
+`Organism._run_backtest`), com janela deslizante e fills simplificados por
+stop/take-profit. `Strategist.judge_backtest` decide: sem dados
+históricos ou amostra menor que `MIN_BACKTEST_TRADES=5` não bloqueia
+sozinho (inconclusivo); abaixo de `MIN_BACKTEST_WIN_RATE=0.35` de acerto
+OU retorno pior que `MAX_BACKTEST_LOSS_PCT=-20%` reprova antes de gastar
+capital real. Testado com candles sintéticos de random walk puro (sem
+edge real) — o backtest corretamente reprovou 2 das 4 estratégias-semente
+nesse cenário, confirmando que a camada tem poder de discriminação de
+verdade, não é carimbo automático.
+
+**Aposta menor por trade = track record mais longo**: `RiskConfig.
+max_position_pct` reduzido de 2.0% para 1.0% (`utils/config.py`) — aposta
+menor sobre o `risk_basis` ancorado significa mais trades até bater
++70%/-60%, dando ao Estrategista/leaderboard uma amostra maior antes de
+julgar por mérito (mitiga julgamento por amostra pequena, um risco
+identificado nesta mesma rodada de revisão).
+
+**Painel**: card "Sala de Risco (Estrategista)" no `dashboard.py`, lendo
+`population.json: risk_room` (calculado por `Organism._risk_room_report`,
+sem rota nova — já vinha no `/api/state` existente): barra de
+uso do teto de população, barra de nichos no limite, aviso de pedidos
+pendentes, tabela de concentração por nicho (com badge "otimização" nas
+variantes) e por ativo. Testado com screenshot real: nicho saturado em
+10/10, 3 variantes de otimização com `strategy_id` distintos, 2 pedidos
+pendentes visíveis, tudo lido do estado real da população.
+
 ## Regras de vida do robô (fixas — não mudar sem avisar)
 
 - Capital inicial: **$5** — todo robô nasce com $5, seja ele raiz ou clone.
@@ -297,15 +371,28 @@ filtro por estratégia restringindo a lista sem perder a seleção já feita.
 - **Eliminação**: quando o capital cai **60% a partir do pico** que aquele
   robô já alcançou (drawdown desde o topo, não desde o valor atual), o
   robô é fechado/removido.
-- **Sem limite** de multiplicação — a intenção é crescimento exponencial.
-  Não existe (e não deve ser adicionado) nenhum teto de população/clones em
-  lugar nenhum do código — nem `Organism`, nem `DarwinAgentV2`. Boas
-  estratégias **têm que rentabilizar** (clonar sem parar, geração após
-  geração); as ruins são simplesmente **demitidas** (eliminadas em -60% do
-  pico) — a seleção é só isso, nunca um limite artificial. Validado:
-  forçando 4 gerações seguidas de +70%, a população cresce 1→2→4→8→16 sem
-  nenhum teto interferir; uma estratégia perdedora é eliminada normalmente
-  no mesmo teste.
+- **Revisão explícita (avisada) da regra "sem limite"**: a intenção
+  original continua — boas estratégias **têm que rentabilizar** e as ruins
+  são **demitidas** (-60% do pico), a seleção nunca é um limite artificial
+  sobre o MÉRITO. Mas exposição CORRELACIONADA (muitos robôs apostando
+  exatamente a mesma coisa ao mesmo tempo) é um risco real de capital que a
+  regra original não via — por isso agora existem dois tetos, os dois sob
+  autoridade do Estrategista (`strategist.py: Strategist`), ver seção
+  "Sala de Risco" abaixo:
+  - **Teto por nicho (estratégia+ativo) = 10 robôs vivos.** Um nicho que já
+    provou o valor dele 10x não ganha mais réplicas IDÊNTICAS — a pressão de
+    clonagem além disso vira pedido de pequena otimização de parâmetros
+    (novo nicho próprio), não duplicação da mesma aposta.
+  - **Teto global = 180 robôs vivos.** Contém o capital real total sob
+    gestão (cada robô vivo é uma conta operando de verdade).
+  - Nenhum dos dois teto é eliminação por mérito — um robô barrado só por
+    teto (nicho ou população cheios) entra numa fila e nasce assim que uma
+    morte (real, por -60%) libera vaga. A seleção continua acontecendo
+    através da eliminação normal; o teto só limita QUANTAS apostas iguais
+    coexistem ao mesmo tempo.
+  - Validado (forçando eventos reais): nicho satura em exatamente 10 e
+    passa a gerar variantes com `strategy_id` novo; teto global enfileira e
+    uma morte de verdade drena a fila corretamente.
 - Auto-otimização = o próprio evento de clonagem/eliminação — reforçado
   agora pelo ranking de estratégias (`leaderboard.py`) e pelo currículo do
   Professor (`professor.py`), mas a régua final de quem sobrevive continua
@@ -351,7 +438,8 @@ Investigador → Professor (currículo por robô/ativo)
 
 ## O que NÃO fazer sem perguntar
 
-- Não trocar as regras de vida (70% / 60% / sem limite) sem confirmação.
+- Não trocar as regras de vida (70% / 60% / teto de 10 por nicho / teto
+  global de 180) sem confirmação.
 - Não conectar a dinheiro real / corretora de produção nesta fase.
 - Não simplificar a arquitetura de 2 camadas do Estrategista pra "só uma
   validação".
@@ -377,7 +465,9 @@ A documentação de arquitetura original dos autores está preservada em
 | Capital inicial $5 | Não (default $50) | **Feito** — `utils/config.py: AgentConfig.starting_capital = 5.0` |
 | Sistema de eliminação por desempenho | Sim, mas era um HP (0-100) alimentado por vários fatores, drawdown só tirava HP, não matava direto | **Feito** — `core/health.py` reescrito: morte só por `current_drawdown_pct >= death_drawdown_pct` (60%, desde o pico do próprio robô). `hp`/`max_hp` viraram só uma projeção cosmética do drawdown, mantidos por compatibilidade |
 | Clonagem em +70%, clone nasce com $5, original NÃO reseta | Não existia (só herança de DNA pra próxima geração, sequencial) | **Feito** — `core/agent_v2.py: _check_clone()`: marco de clonagem por robô, clone nasce com `starting_capital`, original segue com saldo cheio e ganha novo marco. O clone herda o cérebro (Q-learning) do pai via `inherit_brain_from()` — clonagem literal, sem mutação (auto-otimização = o próprio evento de clonar) |
-| Sem limite de multiplicação, população cresce | Não (era sempre 1 agente vivo) | **Feito** — `organism.py: Organism`: cada clone vira uma nova `asyncio.Task`, sem teto |
+| Multiplicação de robôs, população cresce por mérito | Não (era sempre 1 agente vivo) | **Feito, com revisão explícita** — cada clone vira uma nova `asyncio.Task`. Seleção por mérito continua sem teto (nicho provado nunca é "demitido" por estar cheio); o que ganhou teto foi CONCENTRAÇÃO — ver "Sala de Risco" abaixo |
+| Sala de Risco: teto de concentração por nicho (10) e população (180), fila de espera, otimização automática quando saturado | Não existia | **Feito** — `strategist.py: Strategist` (`MAX_ROBOTS_PER_NICHE`, `MAX_POPULATION_ALIVE`, `check_niche_capacity`, `check_population_capacity`, `suggest_optimization`), `organism.py: Organism` (`_niche_key`, `_pending_clones`, `_drain_pending_clones`, `_risk_room_report`). Validado: nicho satura em exatamente 10 e passa a gerar variantes; teto global enfileira e uma morte real drena a fila |
+| Backtest sobre dados históricos ANTES de arriscar capital real numa proposta nova | Não existia | **Feito** — `backtest.py: run_backtest()` (mesma lógica de análise ao vivo, `Strategy.analyze`, sobre candles históricos reais) + `Strategist.judge_backtest()`. Testado com random walk sintético (sem edge real): reprovou 2/4 estratégias-semente, prova que a camada discrimina de verdade |
 | Macro-organismo (fonte única de verdade) | Não | **Feito** — `organism.py`: registro central de todos os robôs (vivos e mortos), persistido em `data/population.json` |
 | Investigador (fluxo contínuo de pesquisa, NÃO um catálogo fixo) | Não | **Feito** — `investigator.py: Investigador` é uma fila (`ingest`/`next_new`); `bootstrap_feed()` continua como ponto de partida pra dev/simulação (4 estratégias reais). **Pesquisa contínua de verdade**: `investigator_research.py` — script separado, chama a API da Anthropic com busca web, grava propostas em `data/strategy_feed/`; `Organism.poll_strategy_feed()` absorve automaticamente. Testado offline de ponta a ponta (arquivo → robô nascido); parser de resposta testado com casos limpo/sujo/inválido — chamada real à API não testada (sem chave neste ambiente) |
 | Professor (currículo por robô/ativo) | Não | **Feito** — `professor.py: Professor.build_curriculum()`. Ajusta os parâmetros da estratégia pro ativo específico (major vs. alt, e por volatilidade medida quando há candles). Testado: dois robôs com a mesma proposta em BTCUSDT vs. DOGEUSDT recebem currículos diferentes; clone herda o currículo idêntico do pai |
@@ -472,7 +562,18 @@ A documentação de arquitetura original dos autores está preservada em
     apurações" acima (cards "Como cada robô opera", "Posições", e
     "Patrimônio" com `/api/history`, `Organism._record_history()`, SVG
     puro em JS).
-13. Visualizador 2D (o "jogo" — escritório, bonequinhos, Estrategista/
+13. ~~Sala de Risco (exposição correlacionada): teto de 10 robôs por nicho
+    (estratégia+ativo) com otimização automática quando saturado, teto
+    global de 180 robôs vivos com fila de espera drenada por morte real,
+    backtest sobre candles históricos antes de qualquer capital real, e
+    aposta por trade reduzida (2.0% -> 1.0%) pra track record mais longo
+    antes do julgamento por mérito.~~ Feito — ver seção "Sala de Risco"
+    acima. Validado com eventos reais (niche satura em exatamente 10, fila
+    drena numa morte real, backtest reprova estratégia sem edge de
+    verdade). Próximo passo natural: guiar a otimização automática por
+    atribuição real (qual parâmetro historicamente correlaciona com melhor
+    resultado), hoje é jitter aleatório.
+14. Visualizador 2D (o "jogo" — escritório, bonequinhos, Estrategista/
     Investigador/Macro-organismo como estações especiais): decisão de
     design pendente sobre como lidar com escala (população sem teto vs.
     tela renderizável) antes de escrever qualquer código — ver seção

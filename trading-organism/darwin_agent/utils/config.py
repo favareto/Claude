@@ -23,7 +23,11 @@ class HealthConfig:
 
 @dataclass
 class RiskConfig:
-    max_position_pct: float = 2.0
+    # Reduzido de 2.0 -> 1.0: aposta menor por trade (sobre o risk_basis
+    # ancorado no capital inicial, ver core/agent_v2.py) significa mais
+    # trades até bater +70%/-60% — track record mais longo antes do
+    # Estrategista/leaderboard julgarem por mérito (ver CLAUDE.md).
+    max_position_pct: float = 1.0
     max_open_positions: int = 3
     max_daily_trades: int = 20
     max_daily_loss_pct: float = 5.0
