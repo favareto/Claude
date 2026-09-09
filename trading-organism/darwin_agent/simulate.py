@@ -1,7 +1,7 @@
-"""Simulação pura do organismo — valida o ciclo nascer→operar→clonar→morrer
-sem depender de nenhuma exchange real (nem chaves de API), usando preços
-sintéticos (markets/simulated.py). Sem Investigador/Professor reais ainda —
-roadmap do CLAUDE.md, passo 4.
+"""Simulação pura do organismo — valida o ciclo Investigador→Estrategista→
+nasce o boneco→opera→clona→morre, sem depender de nenhuma exchange real
+(nem chaves de API), usando preços sintéticos (markets/simulated.py).
+Professor real ainda não existe — roadmap do CLAUDE.md, passo 5.
 
 Uso:
     python -m darwin_agent.simulate
@@ -11,6 +11,7 @@ Uso:
 import argparse
 import asyncio
 
+from darwin_agent.investigator import seed_catalog
 from darwin_agent.markets.simulated import SimulatedMarketAdapter
 from darwin_agent.organism import Organism
 from darwin_agent.utils.config import AgentConfig, MarketConfig
@@ -24,11 +25,11 @@ def _print_report(organism: Organism):
     print("\n" + "=" * 78)
     print("  RELATÓRIO DA POPULAÇÃO")
     print("=" * 78)
-    print(f"{'id':<11} {'pai':<11} {'ativo':<7} {'status':<6} {'capital':>9} "
+    print(f"{'id':<11} {'pai':<11} {'ativo':<7} {'estratégia':<14} {'status':<6} {'capital':>9} "
           f"{'pico':>9} {'dd%':>6} {'trades':>7} {'clones':>7}")
     print("-" * 78)
     for r in records:
-        print(f"{r.id:<11} {(r.parent_id or '-'):<11} {r.symbol:<7} {r.status:<6} "
+        print(f"{r.id:<11} {(r.parent_id or '-'):<11} {r.symbol:<7} {r.strategy_name:<14} {r.status:<6} "
               f"${r.capital:>7.2f} ${r.peak_capital:>7.2f} {r.drawdown_pct:>5.1f}% "
               f"{r.total_trades:>7} {r.clones_generated:>7}")
         if r.status == "dead":
@@ -60,9 +61,17 @@ async def main_async(n_robots: int, seconds: float, heartbeat: float, symbols):
         state_file="data/population.json",
     )
 
+    investigador = seed_catalog()
+    proposal = investigador.propose(0)  # única proposta pesquisada até agora (ver investigator.py)
+    print(f"Investigador trouxe: {proposal.name} ({proposal.implementation}) | fonte: {proposal.source[:70]}...")
+
     for i in range(n_robots):
-        robot_id = await organism.spawn_root(symbols[i % len(symbols)])
-        print(f"Nasceu {robot_id} especialista em {symbols[i % len(symbols)]} com $5")
+        symbol = symbols[i % len(symbols)]
+        robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol)
+        if robot_id:
+            print(f"Estrategista aprovou -> nasceu {robot_id} especialista em {proposal.implementation}/{symbol} com $5")
+        else:
+            print(f"Estrategista recusou ({symbol}): {reason}")
 
     start = asyncio.get_event_loop().time()
 

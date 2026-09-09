@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
 from darwin_agent.core.agent_v2 import DarwinAgentV2
+from darwin_agent.investigator import StrategyProposal
 from darwin_agent.strategist import Strategist
 from darwin_agent.utils.config import AgentConfig
 
@@ -35,6 +36,7 @@ def _utcnow() -> datetime:
 class RobotRecord:
     id: str
     symbol: str
+    strategy_name: str
     parent_id: Optional[str]
     born_at: str
     status: str = "alive"  # alive | dead
@@ -46,6 +48,7 @@ class RobotRecord:
     clones_generated: int = 0
     died_at: Optional[str] = None
     cause_of_death: Optional[str] = None
+    strategy_source: str = ""
 
 
 class Organism:
@@ -76,17 +79,38 @@ class Organism:
         cfg.symbol = symbol
         return cfg
 
-    async def spawn_root(self, symbol: Optional[str] = None) -> str:
-        """Nasce um robô raiz (sem pai), especialista em `symbol`."""
+    async def spawn_root(self, symbol: Optional[str] = None,
+                         strategy_name: str = "momentum") -> str:
+        """Nasce um robô raiz (sem pai), especialista em `symbol` +
+        `strategy_name`. Uso direto (CLI/debug); o caminho "oficial" pra
+        nascimento de robôs raiz é `propose_and_spawn`, via uma proposta do
+        Investigador validada pelo Estrategista."""
         symbol = symbol or self._pick_symbol()
         robot_id = f"r-{uuid.uuid4().hex[:8]}"
-        await self._spawn(robot_id, symbol, parent=None)
+        await self._spawn(robot_id, symbol, strategy_name, parent=None)
         return robot_id
 
-    async def _spawn(self, robot_id: str, symbol: str, parent: Optional[DarwinAgentV2]):
+    async def propose_and_spawn(self, proposal: StrategyProposal,
+                                symbol: Optional[str] = None) -> tuple:
+        """Fluxo Investigador -> Estrategista -> nascimento: cada proposta
+        trazida pelo Investigador e APROVADA pelo Estrategista (camada 1)
+        gera exatamente um avatar novo. Retorna (robot_id ou None, motivo)."""
+        symbol = symbol or proposal.asset_hint or self._pick_symbol()
+        ok, reason = self.strategist.validate_proposal(proposal, symbol)
+        if not ok:
+            return None, reason
+
+        robot_id = f"r-{uuid.uuid4().hex[:8]}"
+        await self._spawn(robot_id, symbol, proposal.implementation, parent=None,
+                          strategy_source=f"{proposal.name} — {proposal.source}")
+        return robot_id, reason
+
+    async def _spawn(self, robot_id: str, symbol: str, strategy_name: str,
+                     parent: Optional[DarwinAgentV2], strategy_source: str = ""):
         cfg = self._new_config(symbol)
         agent = DarwinAgentV2(
             config=cfg,
+            strategy_name=strategy_name,
             robot_id=robot_id,
             strategist=self.strategist,
             parent_id=parent.robot_id if parent else None,
@@ -100,17 +124,20 @@ class Organism:
         async with self._lock:
             self.agents[robot_id] = agent
             self.records[robot_id] = RobotRecord(
-                id=robot_id, symbol=symbol,
+                id=robot_id, symbol=symbol, strategy_name=strategy_name,
                 parent_id=parent.robot_id if parent else None,
                 born_at=_utcnow().isoformat(),
                 capital=cfg.starting_capital, peak_capital=cfg.starting_capital,
+                strategy_source=strategy_source,
             )
             self.tasks[robot_id] = asyncio.create_task(agent.run())
         self._save_state()
 
     async def _handle_clone(self, parent: DarwinAgentV2):
         clone_id = f"r-{uuid.uuid4().hex[:8]}"
-        await self._spawn(clone_id, parent.symbol, parent)
+        parent_rec = self.records.get(parent.robot_id)
+        await self._spawn(clone_id, parent.symbol, parent.strategy_name, parent,
+                          strategy_source=parent_rec.strategy_source if parent_rec else "")
 
     async def _handle_death(self, robot: DarwinAgentV2, cause: str):
         async with self._lock:

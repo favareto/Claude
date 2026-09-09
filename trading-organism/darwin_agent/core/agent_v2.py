@@ -19,7 +19,7 @@ from darwin_agent.markets.base import MarketAdapter, TimeFrame, OrderSide, Order
 from darwin_agent.markets.crypto import BybitAdapter, PaperTradingAdapter
 from darwin_agent.strategies.base import STRATEGY_REGISTRY
 from darwin_agent.strategist import Strategist
-from darwin_agent.ml.brain import QLearningBrain
+from darwin_agent.ml.brain import SingleStrategyBrain
 from darwin_agent.ml.features import N_FEATURES
 from darwin_agent.ml.selector import AdaptiveSelector
 from darwin_agent.utils.config import AgentConfig
@@ -36,7 +36,8 @@ class AgentPhase(Enum):
 
 
 class DarwinAgentV2:
-    def __init__(self, config: AgentConfig, robot_id: Optional[str] = None,
+    def __init__(self, config: AgentConfig, strategy_name: str,
+                 robot_id: Optional[str] = None,
                  strategist: Optional[Strategist] = None,
                  parent_id: Optional[str] = None,
                  on_clone: Optional[Callable] = None,
@@ -44,11 +45,14 @@ class DarwinAgentV2:
                  real_adapter_factory: Optional[Callable[[dict], MarketAdapter]] = None):
         if not config.symbol:
             raise ValueError("AgentConfig.symbol é obrigatório — cada robô opera um único ativo")
+        if strategy_name not in STRATEGY_REGISTRY:
+            raise ValueError(f"Estratégia desconhecida: {strategy_name}")
 
         self.config = config
         self.robot_id = robot_id or f"r-{uuid.uuid4().hex[:8]}"
         self.parent_id = parent_id
         self.symbol = config.symbol
+        self.strategy_name = strategy_name
         self.strategist = strategist or Strategist(config.risk)
         self.on_clone = on_clone
         self.on_death = on_death
@@ -61,8 +65,12 @@ class DarwinAgentV2:
             death_drawdown_pct=config.health.death_drawdown_pct,
         )
 
-        # ML — decisão de entrada/saída (herdado do pai em clonagem, via inherit_brain_from)
-        self.brain = QLearningBrain(n_features=N_FEATURES, epsilon=0.3)
+        # ML — decisão de posicionamento (tamanho/confiança/entrar-ou-não)
+        # dentro da ÚNICA estratégia validada pra este robô (ver CLAUDE.md:
+        # "opera uma estratégia validada"). Herdado do pai em clonagem via
+        # inherit_brain_from — sempre a mesma strategy_name, então os pesos
+        # têm o mesmo formato.
+        self.brain = SingleStrategyBrain(strategy_name, n_features=N_FEATURES, epsilon=0.3)
         self.selector = AdaptiveSelector(self.brain)
 
         self.markets: Dict[str, MarketAdapter] = {}
@@ -142,7 +150,7 @@ class DarwinAgentV2:
 
     async def run(self):
         """Ciclo de vida completo: valida estratégia -> opera -> clona/morre."""
-        ok, reason = self.strategist.validate_strategy(self.robot_id, self.symbol, list(STRATEGY_REGISTRY.keys()))
+        ok, reason = self.strategist.validate_strategy(self.robot_id, self.symbol, [self.strategy_name])
         if not ok:
             await self._die(f"Estrategista recusou a estratégia no nascimento: {reason}")
             return
@@ -408,6 +416,7 @@ class DarwinAgentV2:
             "robot_id": self.robot_id,
             "parent_id": self.parent_id,
             "symbol": self.symbol,
+            "strategy_name": self.strategy_name,
             "phase": self.phase.value,
             "health": self.health.get_vitals(),
             "clones_generated": self.clones_generated,

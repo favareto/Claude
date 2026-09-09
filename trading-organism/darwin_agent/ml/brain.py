@@ -36,6 +36,8 @@ class QLearningBrain:
     def __init__(self, n_features: int = N_FEATURES, learning_rate: float = 0.01,
                  gamma: float = 0.95, epsilon: float = 0.3,
                  epsilon_decay: float = 0.9995, epsilon_min: float = 0.05):
+        # Subclasses (ex: SingleStrategyBrain) podem setar self.STRATEGIES
+        # antes de chamar super().__init__() pra restringir o espaço de ação.
         self.n_features = n_features
         self.lr = learning_rate
         self.gamma = gamma
@@ -273,3 +275,20 @@ class QLearningBrain:
             "regimes_learned": list(self.regime_bonuses.keys()),
             "weight_magnitude": round(float(np.mean(np.abs(self.weights))), 4),
         }
+
+
+class SingleStrategyBrain(QLearningBrain):
+    """Cérebro travado em UMA estratégia (+ hold) — usado por robôs nascidos
+    de uma proposta do Investigador: 'opera uma estratégia validada' (ver
+    CLAUDE.md), não escolhe livremente entre as 4 implementadas.
+
+    O Q-learning ainda decide POSICIONAMENTO (tamanho, confiança, entrar ou
+    não) — só o espaço de escolha de estratégia é restrito a
+    [strategy_name, "hold"], então o robô nunca migra pra outra estratégia.
+    """
+
+    def __init__(self, strategy_name: str, **kwargs):
+        if strategy_name not in QLearningBrain.STRATEGIES:
+            raise ValueError(f"Estratégia desconhecida: {strategy_name}")
+        self.STRATEGIES = [strategy_name, "hold"]
+        super().__init__(**kwargs)

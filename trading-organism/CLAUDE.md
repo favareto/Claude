@@ -21,6 +21,14 @@ repositórios de estratégias do Freqtrade). Estrutura cada estratégia
 encontrada em formato padronizado (nome, indicadores, regra de entrada,
 regra de saída, gestão de risco, fonte) e alimenta o Professor.
 
+**Fluxo de nascimento de um avatar novo (raiz, sem pai):** o Investigador
+traz UMA estratégia estruturada → o Estrategista valida essa proposta
+(camada 1) → se aprovada, nasce exatamente UM boneco novo, especialista
+naquela estratégia + o ativo escolhido. Uma proposta recusada não gera
+avatar nenhum. Implementado em `investigator.py` (`StrategyProposal`,
+`Investigador`) + `strategist.py` (`validate_proposal`) +
+`organism.py` (`Organism.propose_and_spawn`).
+
 ### 2. Professor
 Recebe o material do Investigador e monta o "currículo" de ensino — mas
 personalizado por robô/ativo, não uma regra genérica pra todos. Ensina o
@@ -37,7 +45,10 @@ algo que cada robô roda isolado.
 
 ### 4. Agente-robô
 - Nasce com **$5**.
-- Opera só o ativo em que é especialista.
+- Opera só o ativo em que é especialista **e só a estratégia com que
+  nasceu** (validada pelo Estrategista) — não escolhe livremente entre
+  outras estratégias implementadas. Um clone herda a mesma estratégia do
+  pai (é uma clonagem literal).
 - Toda entrada precisa passar pelo Estrategista.
 - Regras de vida (ver abaixo).
 
@@ -145,9 +156,10 @@ A documentação de arquitetura original dos autores está preservada em
 | Clonagem em +70%, clone nasce com $5, original NÃO reseta | Não existia (só herança de DNA pra próxima geração, sequencial) | **Feito** — `core/agent_v2.py: _check_clone()`: marco de clonagem por robô, clone nasce com `starting_capital`, original segue com saldo cheio e ganha novo marco. O clone herda o cérebro (Q-learning) do pai via `inherit_brain_from()` — clonagem literal, sem mutação (auto-otimização = o próprio evento de clonar) |
 | Sem limite de multiplicação, população cresce | Não (era sempre 1 agente vivo) | **Feito** — `organism.py: Organism`: cada clone vira uma nova `asyncio.Task`, sem teto |
 | Macro-organismo (fonte única de verdade) | Não | **Feito** — `organism.py`: registro central de todos os robôs (vivos e mortos), persistido em `data/population.json` |
-| Investigador (pesquisa de estratégias) | Não | **Pendente** — construir como sub-agente novo |
+| Investigador (pesquisa de estratégias) | Não | **Esqueleto feito** — `investigator.py: Investigador/StrategyProposal`. Hoje o catálogo é preenchido manualmente (`seed_catalog()`, 1 estratégia pesquisada de verdade — EMA 9/21 crossover, fonte real); falta virar script de pesquisa contínua (LLM + busca web, cron/GitHub Actions, como descrito no CLAUDE.md) |
 | Professor (currículo por robô/ativo) | Não | **Pendente** — construir como sub-agente novo |
-| Estrategista (2 camadas) | Parcial (só `RiskManager.approve_trade`, sem camada 1) | **Feito o esqueleto** — `strategist.py: Strategist`, serviço único compartilhado por toda a população. Camada 1 (`validate_strategy`, no nascimento) e camada 2 (`validate_entry`, cada sinal) hoje são checagens determinísticas; ponto de extensão pra virar um agente/LLM depois |
+| Estrategista (2 camadas) | Parcial (só `RiskManager.approve_trade`, sem camada 1) | **Feito o esqueleto** — `strategist.py: Strategist`, serviço único compartilhado por toda a população. Camada 2 (`validate_entry`, cada sinal) reaproveita `RiskManager`. Camada 1 tem duas checagens: `validate_strategy` (sanidade genérica, todo nascimento) e `validate_proposal` (julga a proposta do Investigador — schema completo, implementação existe, tem fonte — antes de criar um avatar novo). Hoje são checagens determinísticas; ponto de extensão pra virar um agente/LLM depois |
+| Nasce 1 boneco novo por proposta aprovada | Não existia esse fluxo | **Feito** — `organism.py: Organism.propose_and_spawn()`: Investigador traz proposta → Estrategista valida → se aprovada, nasce exatamente 1 avatar; se recusada, nenhum. Robô fica travado na estratégia com que nasceu (`ml/brain.py: SingleStrategyBrain` — restringe o espaço de ação do Q-learning a `[estratégia, hold]`, nunca migra pra outra) |
 | Agente-robô opera só 1 ativo | Não (varria uma watchlist de até 10 símbolos) | **Feito** — `AgentConfig.symbol` (um só), atribuído pelo `Organism` no nascimento |
 | Conexão com exchange / paper trading | Sim (Bybit testnet + paper) | Reaproveitado sem mudanças — `markets/crypto.py` |
 | Simulação pura (sem exchange, sem chaves) | Não | **Novo** — `markets/simulated.py: SimulatedMarketAdapter` (preços sintéticos), usado por `simulate.py` |
@@ -167,7 +179,16 @@ A documentação de arquitetura original dos autores está preservada em
    clone dispara em exatamente +70% do marco e a morte em exatamente -60%
    de drawdown do pico, com o `Organism` registrando pai/filho e causa da
    morte corretamente.
-5. Construir Investigador, Professor e a camada 1 real do Estrategista
-   (hoje é só uma checagem de sanidade); refazer `dashboard.py` e a
-   visualização 2D lendo `data/population.json`; depois testar contra a
-   Bybit testnet de verdade (`python -m darwin_agent --symbols BTCUSDT`).
+5. ~~Fluxo "Investigador traz estratégia -> Estrategista valida -> nasce 1
+   avatar por aprovação".~~ Feito o esqueleto —
+   `Organism.propose_and_spawn()`. Validado: proposta bem formada gera
+   exatamente 1 boneco; proposta incompleta ou com implementação
+   inexistente é recusada e não gera nenhum. Robô nasce travado na
+   estratégia aprovada (não migra pra outra).
+6. Investigador de verdade: virar script de pesquisa contínua (LLM +
+   busca web, cron/GitHub Actions) em vez do catálogo manual atual
+   (`seed_catalog()`, 1 proposta só). Construir o Professor (currículo por
+   robô/ativo) e a camada 1 do Estrategista como julgamento por LLM (hoje é
+   checagem de schema). Refazer `dashboard.py` e a visualização 2D lendo
+   `data/population.json`; depois testar contra a Bybit testnet de verdade
+   (`python -m darwin_agent --symbols BTCUSDT`).
