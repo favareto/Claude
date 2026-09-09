@@ -236,6 +236,20 @@ Nota de escala: a API varre todos os arquivos `trades_*.jsonl` a cada
 consulta — funciona bem nesta fase, mas com centenas de robôs vai precisar
 de índice/banco em vez de varrer arquivo por arquivo.
 
+**Como cada robô opera** — cards por robô mostrando símbolo, estratégia,
+timeframe, indicadores (chips), regra de entrada/saída/risco em linguagem
+clara, e o **histórico do Estrategista pra aquela combinação exata**
+(estratégia+ativo): quantas tentativas, quantos clones, quantas mortes,
+% de mortalidade — o mesmo número que `Strategist.validate_proposal` usa
+pra julgar, agora visível. `organism.py`: `RobotRecord` ganhou os campos
+de descrição da estratégia (`strategy_indicators/entry_rule/exit_rule/
+risk_management`, herdados pelo clone do pai) e `Organism._all_track_records()`
+calcula o histórico por (estratégia, ativo) pra toda combinação que já
+existiu, incluído em `population.json` como `track_records`. Testado:
+gerei uma população com uma combinação repetida (2 tentativas, 1 morte) e
+confirmei no card exatamente "2 tentativa(s) · 0 clone(s) · 1 morte(s) ·
+mortalidade 50%".
+
 ## Regras de vida do robô (fixas — não mudar sem avisar)
 
 - Capital inicial: **$5** — todo robô nasce com $5, seja ele raiz ou clone.

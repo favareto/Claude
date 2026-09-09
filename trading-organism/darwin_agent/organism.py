@@ -62,6 +62,12 @@ class RobotRecord:
     strategy_id: str = ""
     timeframe: str = ""
     strategy_params: dict = field(default_factory=dict)
+    # Descrição da estratégia (StrategyProposal original) — pra explicar
+    # "como esse robô opera" no painel, não só o nome curto.
+    strategy_indicators: List[str] = field(default_factory=list)
+    strategy_entry_rule: str = ""
+    strategy_exit_rule: str = ""
+    strategy_risk_management: str = ""
 
 
 class Organism:
@@ -126,6 +132,22 @@ class Organism:
                 tr.deaths += 1
         return tr
 
+    def _all_track_records(self) -> List[dict]:
+        """O mesmo histórico que o Estrategista usa pra julgar
+        (`_track_record`), pra TODA combinação (estratégia, ativo) que já
+        existiu — exposto no estado salvo pra o painel mostrar "o
+        Estrategista já viu isso Nx, deu certo Y vezes"."""
+        pairs = sorted({(r.strategy_name, r.symbol) for r in self.records.values()})
+        out = []
+        for strategy_name, symbol in pairs:
+            tr = self._track_record(strategy_name, symbol)
+            out.append({
+                "strategy_name": strategy_name, "symbol": symbol,
+                "attempts": tr.attempts, "deaths": tr.deaths, "clones": tr.clones,
+                "death_rate": round(tr.death_rate, 4),
+            })
+        return out
+
     async def propose_and_spawn(self, proposal: StrategyProposal,
                                 symbol: Optional[str] = None) -> tuple:
         """Fluxo Investigador -> Estrategista -> nascimento: cada proposta
@@ -157,14 +179,21 @@ class Organism:
         await self._spawn(robot_id, symbol, proposal.implementation, parent=None,
                           strategy_source=f"{proposal.name} — {proposal.source}",
                           strategy_id=proposal.strategy_id, timeframe=proposal.timeframe,
-                          strategy_params=curriculum)
+                          strategy_params=curriculum,
+                          strategy_indicators=list(proposal.indicators),
+                          strategy_entry_rule=proposal.entry_rule,
+                          strategy_exit_rule=proposal.exit_rule,
+                          strategy_risk_management=proposal.risk_management)
         self.strategist.register_strategy_attempt(proposal.strategy_id)
         return robot_id, f"{admit_reason} | {reason}"
 
     async def _spawn(self, robot_id: str, symbol: str, strategy_name: str,
                      parent: Optional[DarwinAgentV2], strategy_source: str = "",
                      strategy_id: str = "", timeframe: str = "15m",
-                     strategy_params: Optional[dict] = None):
+                     strategy_params: Optional[dict] = None,
+                     strategy_indicators: Optional[List[str]] = None,
+                     strategy_entry_rule: str = "", strategy_exit_rule: str = "",
+                     strategy_risk_management: str = ""):
         cfg = self._new_config(symbol, timeframe)
         agent = DarwinAgentV2(
             config=cfg,
@@ -189,6 +218,9 @@ class Organism:
                 capital=cfg.starting_capital, peak_capital=cfg.starting_capital,
                 strategy_source=strategy_source, strategy_id=strategy_id,
                 timeframe=timeframe, strategy_params=strategy_params or {},
+                strategy_indicators=strategy_indicators or [],
+                strategy_entry_rule=strategy_entry_rule, strategy_exit_rule=strategy_exit_rule,
+                strategy_risk_management=strategy_risk_management,
             )
             self.tasks[robot_id] = asyncio.create_task(agent.run())
         self._save_state()
@@ -200,7 +232,11 @@ class Organism:
                           strategy_source=parent_rec.strategy_source if parent_rec else "",
                           strategy_id=parent_rec.strategy_id if parent_rec else "",
                           timeframe=parent_rec.timeframe if parent_rec else "15m",
-                          strategy_params=parent.strategy_params)
+                          strategy_params=parent.strategy_params,
+                          strategy_indicators=parent_rec.strategy_indicators if parent_rec else [],
+                          strategy_entry_rule=parent_rec.strategy_entry_rule if parent_rec else "",
+                          strategy_exit_rule=parent_rec.strategy_exit_rule if parent_rec else "",
+                          strategy_risk_management=parent_rec.strategy_risk_management if parent_rec else "")
         # Clonagem (+70%) é o sinal de sucesso — promove a estratégia no ranking.
         if parent_rec and parent_rec.strategy_id:
             self.strategist.promote_strategy(parent_rec.strategy_id)
@@ -254,6 +290,7 @@ class Organism:
             "leaderboard_size": len(leaderboard),
             "leaderboard_capacity": leaderboard.capacity,
             "leaderboard_top": [e.to_dict() for e in leaderboard.top(20)],
+            "track_records": self._all_track_records(),
         }
         directory = os.path.dirname(self.state_file) or "."
         os.makedirs(directory, exist_ok=True)

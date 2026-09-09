@@ -71,7 +71,7 @@ async def handle_state(req):
         return web.json_response({
             "updated_at": None, "population_alive": 0, "population_total": 0,
             "total_capital_alive": 0, "robots": [], "leaderboard_size": 0,
-            "leaderboard_capacity": 0, "leaderboard_top": [],
+            "leaderboard_capacity": 0, "leaderboard_top": [], "track_records": [],
             "_empty": True,
         })
     try:
@@ -128,6 +128,18 @@ tbody tr:hover{background:#161c26}
 .empty{color:var(--d);text-align:center;padding:16px;font-size:12px}
 .bar{height:6px;background:var(--b);border-radius:3px;overflow:hidden;width:80px;display:inline-block;vertical-align:middle}
 .bar .f{height:100%;background:var(--bl)}
+.robot-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.robot-card{background:#0f1520;border:1px solid var(--b);border-radius:8px;padding:12px}
+.robot-card .rc-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.robot-card .rc-id{font-family:ui-monospace,monospace;font-size:11px;color:var(--d)}
+.robot-card .rc-title{font-size:13px;font-weight:700;margin-bottom:2px}
+.robot-card .rc-sub{font-size:11px;color:var(--d);margin-bottom:8px}
+.robot-card .rc-row{font-size:11px;margin:4px 0;line-height:1.4}
+.robot-card .rc-row b{color:var(--d);font-weight:600}
+.chip{display:inline-block;background:#172554;color:var(--bl);border-radius:10px;padding:1px 7px;font-size:10px;margin:1px 2px 1px 0}
+.trackbox{margin-top:8px;padding:6px 8px;background:#131a24;border-radius:6px;font-size:11px}
+.trackbox .tr-title{color:var(--d);font-size:9px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.more-note{grid-column:1/-1;text-align:center;color:var(--d);font-size:11px;padding:6px}
 </style>
 </head>
 <body>
@@ -158,6 +170,11 @@ tbody tr:hover{background:#161c26}
 <thead><tr><th>ID</th><th>Pai</th><th>Ativo</th><th>Estratégia</th><th>TF</th><th>Status</th><th>Capital</th><th>Pico</th><th>DD%</th><th>Trades</th><th>WR</th><th>Clones</th><th>Tempo de vida</th><th>Causa da morte</th></tr></thead>
 <tbody id="pop-body"></tbody>
 </table></div>
+</div>
+
+<div class="card">
+<h2><span>Como cada robô opera — estratégia e histórico do Estrategista</span><span class="mono" id="ops-count"></span></h2>
+<div id="ops-grid" class="robot-cards"></div>
 </div>
 
 <div class="card">
@@ -235,6 +252,7 @@ async function tick(){
     if(d._empty){
       document.getElementById('pop-body').innerHTML='<tr><td colspan="14" class="empty">Nenhum estado de população encontrado ainda — inicie o Organism (main.py ou simulate.py).</td></tr>';
       document.getElementById('lb-body').innerHTML='<tr><td colspan="8" class="empty">-</td></tr>';
+      document.getElementById('ops-grid').innerHTML='<div class="empty">-</div>';
       return;
     }
 
@@ -276,6 +294,38 @@ async function tick(){
         <td>${fmtDuration(rb.born_at, rb.died_at)}</td>
         <td class="death">${rb.status==='dead' ? esc(rb.cause_of_death||'-') : ''}</td>
       </tr>`).join('') : '<tr><td colspan="14" class="empty">Nenhum robô nasceu ainda</td></tr>';
+
+    const trByKey = {};
+    for(const t of (d.track_records||[])) trByKey[t.strategy_name+'|'+t.symbol] = t;
+    const liveFirst = robots.slice().sort((a,b)=>{
+      if(a.status!==b.status) return a.status==='alive'?-1:1;
+      return new Date(b.born_at)-new Date(a.born_at);
+    });
+    const MAX_CARDS = 40;
+    const shown = liveFirst.slice(0, MAX_CARDS);
+    document.getElementById('ops-count').textContent = robots.length+(robots.length>MAX_CARDS?(' (mostrando '+MAX_CARDS+')'):'');
+    document.getElementById('ops-grid').innerHTML = shown.length ? shown.map(rb=>{
+      const t = trByKey[rb.strategy_name+'|'+rb.symbol];
+      const chips = (rb.strategy_indicators||[]).map(i=>`<span class="chip">${esc(i)}</span>`).join('');
+      const trackHtml = t ? `
+        <div class="trackbox">
+          <div class="tr-title">Histórico do Estrategista — ${esc(rb.strategy_name)} em ${esc(rb.symbol)}</div>
+          ${t.attempts} tentativa(s) · <span class="g">${t.clones} clone(s)</span> · <span class="r">${t.deaths} morte(s)</span>
+          · mortalidade <span class="${t.death_rate>=0.5?'r':''}">${(t.death_rate*100).toFixed(0)}%</span>
+        </div>` : '';
+      return `
+      <div class="robot-card">
+        <div class="rc-hdr"><span class="rc-id">${esc(rb.id)}</span>${statusBadge(rb.status)}</div>
+        <div class="rc-title">${esc(rb.symbol)} · ${esc(rb.strategy_name)} · ${esc(rb.timeframe)}</div>
+        <div class="rc-sub">${money(rb.capital)} (pico ${money(rb.peak_capital)}) · ${rb.total_trades||0} trades · ${rb.clones_generated||0} clones</div>
+        ${chips ? `<div style="margin-bottom:6px">${chips}</div>` : ''}
+        <div class="rc-row"><b>Entrada:</b> ${esc(rb.strategy_entry_rule || '—')}</div>
+        <div class="rc-row"><b>Saída:</b> ${esc(rb.strategy_exit_rule || '—')}</div>
+        <div class="rc-row"><b>Risco:</b> ${esc(rb.strategy_risk_management || '—')}</div>
+        ${trackHtml}
+      </div>`;
+    }).join('') + (robots.length>MAX_CARDS ? `<div class="more-note">+ ${robots.length-MAX_CARDS} robô(s) a mais — veja a tabela População acima</div>` : '')
+      : '<div class="empty">Nenhum robô nasceu ainda</div>';
   }catch(e){
     document.getElementById('dot').className='dot dot-r';
   }
