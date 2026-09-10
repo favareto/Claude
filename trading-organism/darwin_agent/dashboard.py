@@ -184,7 +184,12 @@ async def handle_approve(req):
     approval_id = body.get("id")
     if not approval_id:
         return web.json_response({"ok": False, "error": "faltou 'id'"}, status=400)
-    robot_id, reason = await _organism.approve_pending(approval_id)
+    try:
+        robot_id, reason = await _organism.approve_pending(approval_id)
+    except Exception as e:
+        # A proposta continua na fila (Organism.approve_pending só a remove
+        # depois que o robô nasce de verdade) — reporta erro em vez de 500.
+        return web.json_response({"ok": False, "error": f"falha ao aprovar: {e}"}, status=500)
     return web.json_response({"ok": bool(robot_id), "robot_id": robot_id, "reason": reason})
 
 

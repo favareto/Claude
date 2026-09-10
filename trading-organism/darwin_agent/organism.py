@@ -459,25 +459,48 @@ class Organism:
 
     async def approve_pending(self, approval_id: str) -> tuple:
         """Você aprovou — a proposta finalmente vira um robô de verdade,
-        sentando na cadeira que estava reservada pra ela."""
-        entry = self._pending_approvals.pop(approval_id, None)
+        sentando na cadeira que estava reservada pra ela.
+
+        A aprovação é manual e sem prazo — a Sala de Risco pode ter mudado
+        (nicho/população) enquanto a proposta esperava. Por isso reconfere
+        capacidade AQUI, e só remove da fila (`_pending_approvals`) depois
+        que o nascimento (`_spawn`) realmente aconteceu — se qualquer coisa
+        falhar no meio do caminho, a proposta volta pra fila em vez de
+        desaparecer sem virar robô e sem deixar rastro."""
+        entry = self._pending_approvals.get(approval_id)
         if not entry:
             return None, "Proposta não encontrada (já aprovada, recusada, ou id inválido)"
         proposal = StrategyProposal(**entry["proposal"])
+        symbol = entry["symbol"]
+
+        ok, cap_reason = self.strategist.check_population_capacity(self._alive_count_total())
+        if ok:
+            niche_key = self._niche_key(proposal.strategy_id, symbol)
+            ok, cap_reason = self.strategist.check_niche_capacity(self._alive_count_in_niche(niche_key))
+        if not ok:
+            self._log_event("refused_capacity", f"'{proposal.name}' em {symbol} aprovada por você, mas Sala de Risco recusou agora: {cap_reason}",
+                            proposal_name=proposal.name, symbol=symbol)
+            return None, f"Sala de Risco recusou agora (capacidade mudou desde a fila): {cap_reason} — proposta continua na mesa"
+
+        del self._pending_approvals[approval_id]
         robot_id = f"r-{uuid.uuid4().hex[:8]}"
-        await self._spawn(robot_id, entry["symbol"], proposal.implementation, parent=None,
-                          strategy_source=f"{proposal.name} — {proposal.source}",
-                          strategy_id=proposal.strategy_id, timeframe=proposal.timeframe,
-                          strategy_params=entry["curriculum"],
-                          strategy_indicators=list(proposal.indicators),
-                          strategy_entry_rule=proposal.entry_rule,
-                          strategy_exit_rule=proposal.exit_rule,
-                          strategy_risk_management=proposal.risk_management,
-                          backtest_summary=entry.get("backtest_summary"))
+        try:
+            await self._spawn(robot_id, symbol, proposal.implementation, parent=None,
+                              strategy_source=f"{proposal.name} — {proposal.source}",
+                              strategy_id=proposal.strategy_id, timeframe=proposal.timeframe,
+                              strategy_params=entry["curriculum"],
+                              strategy_indicators=list(proposal.indicators),
+                              strategy_entry_rule=proposal.entry_rule,
+                              strategy_exit_rule=proposal.exit_rule,
+                              strategy_risk_management=proposal.risk_management,
+                              backtest_summary=entry.get("backtest_summary"))
+        except Exception:
+            self._pending_approvals[approval_id] = entry
+            raise
         self.strategist.register_strategy_attempt(proposal.strategy_id)
-        self._log_event("approved", f"Você aprovou '{proposal.name}' — {robot_id} sentou na mesa especialista em {proposal.implementation}/{entry['symbol']}",
-                        robot_id=robot_id, proposal_name=proposal.name, symbol=entry["symbol"])
-        return robot_id, f"Aprovado por você — sentou na mesa especialista em {proposal.implementation}/{entry['symbol']}"
+        self._log_event("approved", f"Você aprovou '{proposal.name}' — {robot_id} sentou na mesa especialista em {proposal.implementation}/{symbol}",
+                        robot_id=robot_id, proposal_name=proposal.name, symbol=symbol)
+        return robot_id, f"Aprovado por você — sentou na mesa especialista em {proposal.implementation}/{symbol}"
 
     def reject_pending(self, approval_id: str, note: str = "") -> bool:
         """Você recusou — descarta, libera a vaga reservada (que nem
@@ -626,17 +649,20 @@ class Organism:
 
         for i, req in enumerate(self._pending_clones):
             if req["kind"] == "clone" and self._niche_key(req["strategy_id"], req["symbol"]) == freed_niche_key:
-                await self._fulfill_pending(self._pending_clones.pop(i))
+                await self._fulfill_pending(req)
+                self._pending_clones.pop(i)
                 return
 
         for i, req in enumerate(self._pending_clones):
             if req["kind"] == "variant":
-                await self._fulfill_pending(self._pending_clones.pop(i))
+                await self._fulfill_pending(req)
+                self._pending_clones.pop(i)
                 return
             niche_ok, _ = self.strategist.check_niche_capacity(
                 self._alive_count_in_niche(self._niche_key(req["strategy_id"], req["symbol"])))
             if niche_ok:
-                await self._fulfill_pending(self._pending_clones.pop(i))
+                await self._fulfill_pending(req)
+                self._pending_clones.pop(i)
                 return
 
     async def _fulfill_pending(self, req: dict):
@@ -702,7 +728,6 @@ class Organism:
     def _save_state(self):
         self._sync_alive_records()
         alive = [r for r in self.records.values() if r.status == "alive"]
-        dead = [r for r in self.records.values() if r.status == "dead"]
         leaderboard = self.strategist.leaderboard
         data = {
             "updated_at": _utcnow().isoformat(),
@@ -955,6 +980,14 @@ class Organism:
                     print(f"[Estrategista] '{proposal.name}' revisada: {review.reason[:100]}")
 
                 symbol = proposal.asset_hint or self._pick_symbol()
-                robot_id, reason = await self.propose_and_spawn(proposal, symbol=symbol)
-                print(f"[Investigador] '{proposal.name}' -> {reason}")
+                try:
+                    robot_id, reason = await self.propose_and_spawn(proposal, symbol=symbol)
+                    print(f"[Investigador] '{proposal.name}' -> {reason}")
+                except Exception as e:
+                    # Uma proposta ruim (parâmetro inesperado, etc.) não pode
+                    # matar a task de polling pro resto da vida do processo —
+                    # loga e segue pra próxima do feed.
+                    print(f"[Investigador] '{proposal.name}' -> erro inesperado, ignorando: {e}")
+                    self._log_event("error", f"Erro inesperado processando '{proposal.name}' em {symbol}: {e}",
+                                    proposal_name=proposal.name, symbol=symbol)
             await asyncio.sleep(interval)

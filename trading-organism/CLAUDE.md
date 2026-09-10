@@ -529,6 +529,36 @@ Aprovar/Recusar no painel de verdade (não só chamando o método Python
 direto) — o robô aprovado aparece em "Como cada robô opera" e no ranking,
 o recusado some da fila sem deixar rastro.
 
+**Revisão pós-implementação (`código-review` em `darwin_agent/`) achou e
+corrigiu 3 bugs reais**, todos girando em torno de "aprovação é uma ação
+manual, sem prazo — o mundo pode mudar enquanto a proposta espera":
+1. `approve_pending` tirava a proposta de `_pending_approvals` ANTES de
+   spawnar; se `_spawn` explodisse no meio (ex.: currículo/param
+   inesperado), a proposta desaparecia pra sempre sem nascer robô e sem
+   deixar rastro — nem a cadeira reservada voltava. Corrigido: só remove
+   da fila depois que o robô nasce de verdade; se `_spawn` falhar, a
+   entrada volta pra `_pending_approvals` (e a exceção sobe, o painel
+   devolve erro em JSON em vez de 500 mudo).
+2. `approve_pending` nunca reconferia o teto de nicho/população da Sala de
+   Risco antes de spawnar — só checava uma vez, no momento de ENFILEIRAR.
+   Como a aprovação pode demorar (é manual!), outros clones podiam
+   preencher o nicho enquanto a proposta esperava, e aprovar furava o teto
+   que a Sala de Risco existe pra proteger. Corrigido: reconfere capacidade
+   dentro do próprio `approve_pending`; se mudou, recusa ali mesmo e a
+   proposta continua na mesa (você pode tentar de novo depois).
+3. `_drain_pending_clones` tinha o mesmo padrão "tira da fila antes de
+   confirmar que nasceu" pra clones/otimizações pendentes — mesma correção
+   (só remove de `_pending_clones` depois que `_fulfill_pending` termina
+   sem exceção).
+Também achou que `poll_strategy_feed` chamava `propose_and_spawn` sem
+try/except — uma proposta problemática vinda do feed (`investigator_research.py`,
+processo externo) travava a task de polling pra sempre, silenciosamente
+(sem re-tentar, sem log, sem crashar visivelmente). Corrigido com
+try/except ao redor da chamada, logando em `events.jsonl` (tipo `error`) e
+seguindo pro próximo arquivo do feed. Todos os 4 fixes verificados com
+objetos `Organism` reais forçando cada cenário de falha (`_spawn` mockado
+pra explodir, `check_niche_capacity` mockado pra recusar no momento certo).
+
 ### 10. Log de Eventos — janela separada — Feito
 
 Pedido explícito do usuário: um painel de risco (Sala de Risco) mostra o
