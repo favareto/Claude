@@ -423,6 +423,14 @@ class DarwinAgentV2:
                              self.health.win_rate, life_hours)
             if self.on_death:
                 await self.on_death(self, final_cause)
+        elif cause is None:
+            # Cancelamento (run() interrompido por shutdown do processo),
+            # não eliminação por drawdown — NÃO é uma morte pras regras do
+            # jogo (não deve demitir a estratégia nem virar cause_of_death).
+            # Só marca que este robô parou de rodar, pra não reprocessar em
+            # cima dele se `_die()`/`_cleanup()` forem chamados de novo.
+            self._death_reported = True
+            self.phase = AgentPhase.DEAD
 
     async def _cleanup(self):
         for a in self.markets.values():

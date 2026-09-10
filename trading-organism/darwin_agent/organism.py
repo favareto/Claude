@@ -183,35 +183,44 @@ class Organism:
             "by_asset": sorted(assets.values(), key=lambda a: -a["count"])[:30],
         }
 
-    async def _run_backtest(self, strategy_name: str, params: dict, symbol: str,
-                            timeframe: str) -> Optional[BacktestResult]:
-        """Sala de Risco, camada 0 — busca candles históricos reais (via o
-        mesmo adapter que os robôs usariam) e roda `backtest.run_backtest`.
-        Não levanta exceção nem bloqueia o nascimento se não conseguir
-        dados (rede fora do ar, símbolo novo demais): retorna None e o
-        Estrategista (`judge_backtest`) segue sem essa camada."""
+    async def _fetch_recent_candles(self, symbol: str, timeframe: str, limit: int = 300) -> list:
+        """Busca candles históricos reais (mesmo adapter que os robôs usam)
+        — uma única vez, reaproveitado tanto pelo currículo do Professor
+        (afinar parâmetros pela volatilidade real do ativo) quanto pelo
+        backtest (Sala de Risco, camada 0). Não levanta exceção nem bloqueia
+        o nascimento se não conseguir dados (rede fora do ar, símbolo novo
+        demais): retorna lista vazia e quem chama segue sem essa camada."""
         try:
             mc = next((m for m in self.base_config.markets.values() if m.enabled), None)
             if mc is None:
-                return None
+                return []
             if self._real_adapter_factory:
                 adapter = self._real_adapter_factory(mc)
             else:
                 from darwin_agent.markets.crypto import BybitAdapter
                 adapter = BybitAdapter({"api_key": mc.api_key, "api_secret": mc.api_secret, "testnet": mc.testnet})
             if not await adapter.connect():
-                return None
-            try:
-                tf = TimeFrame(timeframe)
-            except ValueError:
-                tf = TimeFrame.M15
-            candles = await adapter.get_candles(symbol, tf, limit=300)
-            if len(candles) < 80:
-                return None
-            return run_backtest(candles, strategy_name, params, symbol, tf)
+                return []
+            return await adapter.get_candles(symbol, self._resolve_timeframe(timeframe), limit=limit)
         except Exception as e:
-            print(f"[Sala de Risco] backtest indisponível pra {symbol}/{strategy_name}: {e}")
+            print(f"[Sala de Risco] candles históricos indisponíveis pra {symbol}: {e}")
+            return []
+
+    @staticmethod
+    def _resolve_timeframe(timeframe: str) -> TimeFrame:
+        try:
+            return TimeFrame(timeframe)
+        except ValueError:
+            return TimeFrame.M15
+
+    def _run_backtest(self, strategy_name: str, params: dict, symbol: str,
+                      timeframe: str, candles: list) -> Optional[BacktestResult]:
+        """Sala de Risco, camada 0 — roda `backtest.run_backtest` sobre
+        candles já buscados (ver `_fetch_recent_candles`). Amostra menor
+        que 80 candles não é suficiente pra uma janela deslizante útil."""
+        if len(candles) < 80:
             return None
+        return run_backtest(candles, strategy_name, params, symbol, self._resolve_timeframe(timeframe))
 
     def _track_record(self, strategy_name: str, symbol: str) -> TrackRecord:
         """Histórico real dessa combinação (estratégia, ativo) na população
@@ -276,13 +285,18 @@ class Organism:
         if not ok:
             return None, cap_reason
 
+        # Busca candles históricos reais UMA vez — o Professor usa pra
+        # afinar o currículo pela volatilidade real (não só a heurística
+        # major/alt) e o backtest reaproveita os mesmos candles logo abaixo.
+        candles = await self._fetch_recent_candles(symbol, proposal.timeframe)
+
         # Professor monta o currículo: pega a estratégia genérica e adapta
         # os parâmetros pro ativo específico deste robô (ver professor.py).
-        curriculum = self.professor.build_curriculum(proposal, symbol)
+        curriculum = self.professor.build_curriculum(proposal, symbol, recent_candles=candles)
 
         # Sala de Risco, camada 0 — backtest sobre candles históricos ANTES
         # de arriscar capital real (ver backtest.py, Strategist.judge_backtest).
-        backtest_result = await self._run_backtest(proposal.implementation, curriculum, symbol, proposal.timeframe)
+        backtest_result = self._run_backtest(proposal.implementation, curriculum, symbol, proposal.timeframe, candles)
         ok, bt_reason = self.strategist.judge_backtest(backtest_result)
         if not ok:
             return None, bt_reason

@@ -71,7 +71,7 @@ class AgentConfig:
             errors.append("clone_multiplier must be > 1.0")
         if not any(m.enabled for m in self.markets.values()):
             errors.append("At least one market must be enabled")
-        allowed_timeframes = {"1m", "5m", "15m", "1h", "4h", "1d"}
+        allowed_timeframes = {"1m", "5m", "15m", "1h", "4h", "1d", "1w"}
         if self.scan_timeframe not in allowed_timeframes:
             errors.append(f"scan_timeframe must be one of: {', '.join(sorted(allowed_timeframes))}")
         if not (0.5 <= self.aggression_level <= 3.0):

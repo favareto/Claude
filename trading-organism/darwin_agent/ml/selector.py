@@ -95,8 +95,15 @@ class AdaptiveSelector:
         self._last_conf_components: Optional[np.ndarray] = None
         self._last_combined_conf: float = 0.0
 
-        # Track pending trades with outcome binding (supports multiple)
-        self._open_trades: Dict[str, Dict] = {}  # symbol -> trade info
+        # Track pending trades with outcome binding. Um robô opera um único
+        # símbolo mas pode ter até `max_open_positions` posições abertas
+        # NESSE MESMO símbolo ao mesmo tempo — por isso é uma fila por
+        # símbolo (FIFO), não uma entrada só: cada `decide()` que abre
+        # posição empilha, cada `report_result()` desempilha a mais antiga
+        # (aproximação razoável de qual posição fechou), em vez de uma
+        # sobrescrever a outra e o encerramento de uma posição perder o
+        # rastro da(s) outra(s) ainda aberta(s).
+        self._open_trades: Dict[str, List[Dict]] = {}  # symbol -> fila de trades abertos
 
     def decide(self, candles: List[Candle], symbol: str,
                timeframe: TimeFrame, health_pct: float) -> TradeDecision:
@@ -146,8 +153,9 @@ class AdaptiveSelector:
             "state": features.features.copy(), "action_idx": action_idx,
             "symbol": symbol,
         }
-        # Outcome binding: track by symbol
-        self._open_trades[symbol] = dict(self.pending_trade)
+        # Outcome binding: empilha por símbolo (pode haver mais de uma
+        # posição aberta no mesmo símbolo — ver comentário em __init__).
+        self._open_trades.setdefault(symbol, []).append(dict(self.pending_trade))
 
         return TradeDecision(
             should_trade=True, action=action, signal=signal, features=features,
@@ -169,8 +177,11 @@ class AdaptiveSelector:
         strat = "unknown"
         regime = self.last_regime
 
-        # Outcome binding: use trade info from the specific symbol
-        trade_info = self._open_trades.pop(symbol, None) or self.pending_trade
+        # Outcome binding: desempilha a posição mais antiga aberta nesse
+        # símbolo (FIFO) — não sobrescreve nem perde o rastro quando há
+        # mais de uma posição aberta ao mesmo tempo.
+        queue = self._open_trades.get(symbol)
+        trade_info = queue.pop(0) if queue else self.pending_trade
         if trade_info:
             dur = (datetime.now(timezone.utc) - trade_info["entry_time"]).total_seconds() / 60
             strat = trade_info["strategy"]
