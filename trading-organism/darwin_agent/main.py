@@ -118,7 +118,7 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int, asset_clas
     print("  Ctrl+C para parar.\n")
 
     try:
-        await organism.run_until(lambda org: not org.agents, check_interval=2.0)
+        await organism.run_until(lambda org: not org.agents and not org._pending_approvals, check_interval=2.0)
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
     finally:

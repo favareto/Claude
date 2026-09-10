@@ -903,9 +903,16 @@ class Organism:
         população inteira ser extinta. `history_interval_ticks` controla de
         quanto em quanto tempo grava um ponto no histórico de patrimônio
         (mais espaçado que o save de estado — não precisa de um ponto por
-        tick, só o suficiente pra desenhar a curva no painel)."""
+        tick, só o suficiente pra desenhar a curva no painel).
+
+        "Extinta" NÃO é só `not self.agents` — com A Mesa, é normal ter zero
+        robôs vivos e mesmo assim propostas esperando sua aprovação (ex.:
+        boot inicial, antes de você clicar em nada). Só considera extinta
+        de verdade quando não há robô vivo NEM proposta pendente — senão o
+        processo mataria o painel sozinho antes de você conseguir aprovar
+        a primeira estratégia."""
         tick = 0
-        while self.agents and not condition(self):
+        while (self.agents or self._pending_approvals) and not condition(self):
             await asyncio.sleep(check_interval)
             tick += 1
             if tick % save_interval_ticks == 0:
