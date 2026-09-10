@@ -75,7 +75,14 @@ async def main_async(n_robots: int, seconds: float, heartbeat: float, symbols):
     for i in range(n_robots):
         proposal = feed[i % len(feed)]  # cicla o que já existe; produção teria mais chegando
         symbol = symbols[i % len(symbols)]
-        robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol)
+        robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol,
+                                                             bypass_root_cooldown=True)
+        if not robot_id and organism._pending_approvals:
+            # simulate.py é ferramenta de teste do CICLO DE VIDA, não do
+            # fluxo de aprovação humana (ver CLAUDE.md) — auto-aprova pra
+            # não travar toda simulação esperando clique no painel.
+            approval_id = list(organism._pending_approvals.keys())[-1]
+            robot_id, reason = await organism.approve_pending(approval_id)
         if robot_id:
             print(f"Investigador trouxe '{proposal.name}' -> Estrategista aprovou -> "
                   f"nasceu {robot_id} especialista em {proposal.implementation}/{symbol} com $5")

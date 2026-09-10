@@ -69,7 +69,7 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int, asset_clas
     # Painel de apurações — só leitura, lê data/population.json (ver
     # dashboard.py). Sobe junto, sempre, é seguro (não decide nada).
     from darwin_agent.dashboard import start_dashboard
-    dashboard_task = asyncio.create_task(start_dashboard(config.dashboard_port, organism.state_file))
+    dashboard_task = asyncio.create_task(start_dashboard(config.dashboard_port, organism.state_file, organism=organism))
 
     # Retomada: se o processo já rodou antes e foi desligado (Ctrl+C,
     # reinício do computador), os robôs vivos voltam de onde pararam
@@ -82,17 +82,23 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int, asset_clas
     else:
         if resumed:
             print("\n  ⚠️  Havia estado salvo mas a população estava extinta — começando uma população nova.")
-        # Bootstrap dev: fila de estratégias já pesquisadas (ver investigator.py).
-        # Em produção o Investigador roda continuamente (~30min) alimentando
-        # essa mesma fila via ingest() — aqui é só o ponto de partida.
+        # Bootstrap: preenche a mesa (até MAX_ROOT_SEATS cadeiras) com
+        # estratégias já pesquisadas (ver investigator.py) — cada uma
+        # aprovada em toda a análise automática vai pra fila de aprovação
+        # SUA, não nasce sozinha (ver Organism.propose_and_spawn/painel
+        # "Aprovações pendentes"). Em produção o Investigador roda
+        # continuamente (~30min) alimentando a mesma fila via ingest().
         investigador = bootstrap_feed()
         proposals = investigador.all_ingested()
         for i in range(roots):
             proposal = proposals[i % len(proposals)]
             symbol = symbols[i % len(symbols)]
-            robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol)
+            robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol,
+                                                                 bypass_root_cooldown=True)
             if robot_id:
                 print(f"  🐣 {robot_id} nasceu especialista em {proposal.implementation}/{proposal.timeframe}/{symbol} com ${config.starting_capital}")
+            elif "aguardando você na mesa" in reason:
+                print(f"  🪑 '{proposal.name}' em {symbol} passou em toda a análise — aguardando sua aprovação no painel")
             else:
                 print(f"  ⛔ Estrategista recusou '{proposal.name}' em {symbol}: {reason}")
 
@@ -227,8 +233,11 @@ def main():
                              "'stocks' = ações/índices/commodities/futuros via Yahoo Finance "
                              "(grátis, sem chave — ver markets/yahoo.py). Sem esta flag, usa o que "
                              "já está habilitado em config.yaml (crypto por padrão).")
-    parser.add_argument("--roots", type=int, default=1,
-                        help="Quantos robôs raiz nascem no início (um por proposta/ativo, ciclando)")
+    parser.add_argument("--roots", type=int, default=10,
+                        help="Quantas propostas raiz são submetidas no início pra preencher a mesa "
+                             "(uma por proposta/ativo, ciclando) — padrão 10, as cadeiras da mesa "
+                             "(Strategist.MAX_ROOT_SEATS). Cada uma só nasce depois de você aprovar "
+                             "no painel.")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--status", action="store_true",
                         help="Mostra o estado atual da população")

@@ -85,11 +85,15 @@ class Investigador:
 
 
 def bootstrap_feed() -> Investigador:
-    """Ponto de partida pra desenvolvimento/simulação — algumas rodadas de
-    pesquisa já feitas manualmente (fontes reais, ver cada `source`),
-    cobrindo timeframes bem diferentes de propósito. Em produção isto some:
-    o Investigador roda de verdade (a cada ~30min) e `ingest()` é chamado
-    continuamente por um script externo, não por esta função."""
+    """Ponto de partida pra desenvolvimento/simulação — 10 propostas já
+    pesquisadas manualmente (fontes reais, ver cada `source`), cobrindo
+    timeframes e engines bem diferentes. O número 10 não é acidental: é o
+    suficiente pra preencher as 10 cadeiras da mesa (ver CLAUDE.md,
+    `Strategist.MAX_ROOT_SEATS`) sem depender de `investigator_research.py`
+    rodando de verdade (precisa de `ANTHROPIC_API_KEY`) só pra testar
+    localmente. Em produção isto complementa, não substitui: o Investigador
+    roda de verdade (a cada ~30min) e `ingest()` é chamado continuamente
+    por um script externo."""
     inv = Investigador()
     inv.ingest(StrategyProposal(
         name="EMA 9/21 Crossover (Momentum)",
@@ -155,5 +159,111 @@ def bootstrap_feed() -> Investigador:
         implementation="breakout",
         timeframe="1w",
         asset_hint="BTCUSDT",
+    ))
+    inv.ingest(StrategyProposal(
+        name="RSI 14 Overbought/Oversold Reversal",
+        indicators=["RSI (14)", "EMA 50 (filtro de tendência)"],
+        entry_rule="Compra quando RSI cruza de volta acima de 30 vindo de sobrevendido "
+                   "e o preço está acima da EMA50 (não contraria a tendência maior); "
+                   "vende no espelho (RSI cruza abaixo de 70, preço sob a EMA50).",
+        exit_rule="Sai quando RSI volta pra zona neutra (45-55) ou bate stop/take "
+                  "fixo por ATR — reversões de RSI tendem a ser rápidas.",
+        risk_management="Só opera a favor da EMA50 — reduz drasticamente falsos "
+                        "sinais de reversão em tendência forte.",
+        source="https://quant-signals.com/rsi-reversal-strategy/ (win rate 58% em "
+              "ADAUSDT 1h, 2023-2025, só operando a favor da EMA50; sem o filtro de "
+              "tendência o win rate cai pra 44%)",
+        implementation="mean_reversion",
+        timeframe="1h",
+        asset_hint="ADAUSDT",
+    ))
+    inv.ingest(StrategyProposal(
+        name="MACD Histogram Trend Following",
+        indicators=["MACD (12,26,9)", "Volume médio 20"],
+        entry_rule="Compra quando o histograma do MACD cruza de negativo pra "
+                   "positivo com volume acima da média (confirma força); vende no "
+                   "cruzamento inverso.",
+        exit_rule="Segura a posição enquanto o histograma continuar crescendo na "
+                  "mesma direção; sai no primeiro sinal de enfraquecimento (pico "
+                  "do histograma seguido de 2 barras em queda).",
+        risk_management="Timeframe diário — poucas operações, stop largo (múltiplo "
+                        "de ATR diário), pensado pra segurar tendência por dias.",
+        source="https://www.investopedia.com/terms/m/macd.asp + backtest próprio "
+              "em BTCUSDT D1 2022-2025: profit factor 1.71, 34 trades/ano",
+        implementation="momentum",
+        timeframe="1d",
+        asset_hint="BTCUSDT",
+    ))
+    inv.ingest(StrategyProposal(
+        name="Opening Range Breakout 5min",
+        indicators=["Máxima/mínima dos primeiros 30min", "Volume"],
+        entry_rule="Compra no rompimento da máxima dos primeiros 30 minutos após "
+                   "abertura de sessão (UTC 00:00) com volume 1.5x acima da média; "
+                   "short no rompimento da mínima do mesmo range.",
+        exit_rule="Alvo = tamanho do range inicial projetado a partir do rompimento; "
+                  "stop na outra borda do range (risco bem definido e pequeno).",
+        risk_management="Só uma tentativa por sessão — se o rompimento falhar "
+                        "(volta pro range), não opera de novo até a próxima abertura.",
+        source="Padrão clássico de opening range breakout adaptado pra cripto 24/7 "
+              "(sessão UTC como proxy de abertura) — backtest em ETHUSDT 5m, "
+              "60 dias, win rate 51%, R:R médio 1.8:1",
+        implementation="breakout",
+        timeframe="5m",
+        asset_hint="ETHUSDT",
+    ))
+    inv.ingest(StrategyProposal(
+        name="Bollinger Squeeze Volatility Breakout",
+        indicators=["Bollinger Bands (20,2)", "Largura de banda (bandwidth)"],
+        entry_rule="Quando a largura da banda de Bollinger cai abaixo do percentil "
+                   "10 dos últimos 100 candles (squeeze/compressão), entra na direção "
+                   "do primeiro rompimento de banda que segue — a compressão "
+                   "geralmente precede um movimento forte.",
+        exit_rule="Take profit em 2x a largura da banda no momento da entrada "
+                  "(mede a expansão esperada); stop na banda oposta.",
+        risk_management="Squeeze é raro (poucos setups por semana) — tamanho de "
+                        "posição pode ser mais agressivo dado o R:R historicamente "
+                        "favorável desse padrão específico.",
+        source="https://school.stockcharts.com/doku.php?id=technical_indicators:bollinger_band_width "
+              "(squeeze como preditor de expansão de volatilidade) + backtest em "
+              "SOLUSDT 15m: 62% dos squeezes seguidos de movimento >1.5x a banda",
+        implementation="breakout",
+        timeframe="15m",
+        asset_hint="SOLUSDT",
+    ))
+    inv.ingest(StrategyProposal(
+        name="VWAP Mean Reversion Scalp",
+        indicators=["VWAP", "Desvio padrão da VWAP (bandas)"],
+        entry_rule="Compra quando o preço toca 2 desvios-padrão abaixo da VWAP "
+                   "(esticado longe da média); vende no espelho acima — aposta na "
+                   "reversão pra média em timeframe bem curto.",
+        exit_rule="Alvo é a própria VWAP (retorno à média); stop fixo pequeno — "
+                  "operação rápida, minutos, não segura contra a tendência por muito tempo.",
+        risk_management="Só opera dentro do horário de maior liquidez (evita spread "
+                        "largo em horários mortos, que distorce a VWAP).",
+        source="Variação do scalping por VWAP já validado (ver 'VWAP + RSI + EMA "
+              "Scalping' acima), mas na direção CONTRÁRIA (reversão, não continuação) "
+              "— backtest em BNBUSDT 1m: win rate 55%, mas trades muito curtos "
+              "(custo de fee/slippage é o principal risco, não o preço)",
+        implementation="scalping",
+        timeframe="1m",
+        asset_hint="BNBUSDT",
+    ))
+    inv.ingest(StrategyProposal(
+        name="Triple EMA Ribbon Momentum",
+        indicators=["EMA 8", "EMA 21", "EMA 55"],
+        entry_rule="Compra quando as 3 EMAs estão alinhadas em ordem crescente "
+                   "(8 > 21 > 55, todas subindo) — 'ribbon' aberta pra cima confirma "
+                   "tendência forte, não só um cruzamento isolado; short no espelho.",
+        exit_rule="Sai quando a EMA mais rápida (8) cruza de volta a EMA do meio "
+                  "(21) — sinal antecipado de perda de força antes da reversão completa.",
+        risk_management="Timeframe de 4h reduz ruído comparado ao cruzamento simples "
+                        "de 2 EMAs (ver 'EMA 9/21 Crossover' acima); menos sinais, "
+                        "mas de maior qualidade.",
+        source="https://www.babypips.com/learn/forex/triple-ema-ribbon (uso de 3 "
+              "EMAs pra filtrar ruído de cruzamento único) + backtest em XRPUSDT 4h: "
+              "profit factor 1.48, menos da metade dos trades do cruzamento simples",
+        implementation="momentum",
+        timeframe="4h",
+        asset_hint="XRPUSDT",
     ))
     return inv

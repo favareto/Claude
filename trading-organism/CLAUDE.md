@@ -449,6 +449,86 @@ variantes) e por ativo. Testado com screenshot real: nicho saturado em
 10/10, 3 variantes de otimização com `strategy_id` distintos, 2 pedidos
 pendentes visíveis, tudo lido do estado real da população.
 
+### 9. A Mesa (aprovação humana de estratégia nova) — Feito
+
+Decisão explícita do usuário, além de tudo que a Sala de Risco já filtra
+automaticamente: **nenhuma estratégia nova senta à mesa sem você
+aprovar**, depois de passar por toda a análise (ranking, track record,
+teto de nicho/população, backtest). Isso é só pra ESTRATÉGIA NOVA (robô
+raiz) — **clones continuam 100% automáticos**, sem gate humano nenhum
+(multiplicação de uma estratégia já aprovada não é "estratégia nova
+pedindo cadeira"). Execução de cada trade individual também continua
+automática (Q-learning + `Strategist.validate_entry`) — a aprovação
+humana é só sobre "essa estratégia merece existir", nunca sobre "esse
+trade específico pode acontecer".
+
+**A Mesa tem 10 cadeiras** (`Strategist.MAX_ROOT_SEATS = 10`) — no máximo
+10 estratégias distintas com um robô RAIZ vivo ao mesmo tempo. Uma cadeira
+representa o ROBÔ raiz especificamente (decisão do usuário): se a raiz
+morre, a cadeira libera — mesmo que aquela estratégia ainda tenha clones
+vivos e lucrativos por aí (os clones continuam operando normalmente, só
+não "seguram" a cadeira da linhagem). Cadeiras OCUPADAS OU RESERVADAS
+(vivas + pendentes de aprovação) contam pro teto — sem isso dava pra
+enfileirar 20 propostas e aprovar todas, furando o limite de 10 (bug real
+encontrado e corrigido durante os testes).
+
+**Cadência de 30 minutos** (`Strategist.MIN_MINUTES_BETWEEN_ROOTS = 30`)
+— fora do bootstrap inicial, uma cadeira vaga só é oferecida ao
+Investigador de novo a cada 30 minutos (`Organism._last_root_proposal_at`),
+mesmo que a fila de pesquisa contínua (`poll_strategy_feed`) tenha mais
+propostas prontas. O bootstrap inicial (`main.py --roots 10`,
+`simulate.py`) usa `propose_and_spawn(..., bypass_root_cooldown=True)`
+pra encher a mesa de largada sem esperar 5 horas (10 × 30min) — a
+cadência é pra regime permanente, não pro primeiro preenchimento.
+
+**Fluxo**: `Organism.propose_and_spawn()` roda TODA a análise automática
+igual antes (ranking, track record, cadeira, cadência, Sala de Risco,
+backtest) — mas em vez de nascer no final, empacota tudo
+(`_queue_for_approval`) numa entrada de `_pending_approvals`: o texto da
+estratégia (nome/indicadores/regras de entrada-saída-risco/fonte), o
+**track record real** dessa combinação (estratégia+ativo) até agora
+(`Organism._track_record`, o mesmo número que o Estrategista usa pra
+julgar), e **por que o Estrategista acha que é vencedora** (as 3 razões
+que ela já passou: admissão no ranking, mérito por track record, backtest).
+`Organism.approve_pending(id)` spawna de verdade com os dados já
+calculados (currículo, backtest); `Organism.reject_pending(id)` só
+descarta.
+
+**Painel deixa de ser só leitura — única exceção deliberada**: novo card
+"A Mesa — aprovações pendentes" (barra de cadeiras, aviso de cadência,
+lista de propostas com botão Aprovar/Recusar por proposta). `dashboard.py`
+ganha `set_organism()` — como o painel roda no MESMO processo/event loop
+que o `Organism` (`asyncio.create_task` dentro de `main.py`), as rotas
+`POST /api/approve`/`POST /api/reject` chamam `approve_pending`/
+`reject_pending` diretamente, sem precisar do padrão de arquivo-como-IPC
+usado em `strategy_feed`/`strategy_reviews`. Isso não quebra "painel sem
+lógica de decisão": o painel só relay a SUA decisão (o clique), o
+julgamento inteiro (ranking/track record/backtest/cadeira) já rodou antes,
+no Organism, sem o painel participar.
+
+**Bootstrap expandido pra 10 propostas distintas**: `investigator.py:
+bootstrap_feed()` tinha só 4 estratégias-semente; agora tem 10 (mesmo
+estilo — fontes reais citadas, indicadores/regras concretas), cobrindo os
+4 engines existentes (`momentum`/`mean_reversion`/`scalping`/`breakout`)
+com timeframes/ativos variados — o número não é acidental, é o suficiente
+pra encher as 10 cadeiras sem depender de `investigator_research.py`
+rodando de verdade (precisa de `ANTHROPIC_API_KEY`) só pra testar local.
+`main.py --roots` mudou o padrão de 1 pra 10 pra bater com "a mesa começa
+cheia".
+
+Testado de ponta a ponta com objetos reais: as 10 propostas do bootstrap
+entram na fila e NENHUMA nasce sozinha; 11ª proposta recusada por falta
+de cadeira mesmo com todas as 10 ainda só *pendentes* (não vivas ainda —
+prova do bug de contagem corrigido); aprovar as 10 nasce 10 robôs de
+verdade; mesa cheia recusa proposta nova; morte de uma raiz libera
+cadeira; cadência de 30min bloqueia sem `bypass_root_cooldown`; recusar
+descarta sem nascer; clonagem continua automática sem passar pela fila.
+Fila de aprovação + timestamp de cadência sobrevivem a um restart do
+processo (retomada de estado). E um teste real via Playwright clicando
+Aprovar/Recusar no painel de verdade (não só chamando o método Python
+direto) — o robô aprovado aparece em "Como cada robô opera" e no ranking,
+o recusado some da fila sem deixar rastro.
+
 ## Regras de vida do robô (fixas — não mudar sem avisar)
 
 - Capital inicial: **$5** — todo robô nasce com $5, seja ele raiz ou clone.
@@ -545,6 +625,10 @@ Investigador → Professor (currículo por robô/ativo)
 - Não conectar a dinheiro real / corretora de produção nesta fase.
 - Não simplificar a arquitetura de 2 camadas do Estrategista pra "só uma
   validação".
+- Não fazer estratégia NOVA (robô raiz) nascer sem passar por "A Mesa"
+  (aprovação humana) — `bypass_root_cooldown=True` só pula a CADÊNCIA de
+  30min, nunca a fila de aprovação em si. Só `simulate.py` auto-aprova
+  (ferramenta de teste do ciclo de vida, documentado ali o porquê).
 
 ## Ponto de partida: NÃO construir do zero
 
@@ -710,3 +794,7 @@ A documentação de arquitetura original dos autores está preservada em
 19. ~~Expandir pra ativos fora de cripto (índices globais, commodities,
     futuros, ações de bolsa).~~ Feito — ver "Macro-organismo" acima
     (`markets/yahoo.py`, `markets/multi_asset_universe.py`, `--assets`).
+20. ~~A Mesa: aprovação humana pra estratégia nova (não clone), 10
+    cadeiras, cadência de 30min, painel com card de aprovação.~~ Feito —
+    ver seção "A Mesa" acima. Testado de ponta a ponta inclusive clicando
+    Aprovar/Recusar no painel de verdade via Playwright.

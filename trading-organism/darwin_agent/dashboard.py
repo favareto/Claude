@@ -8,6 +8,15 @@ de estratégias (`leaderboard.py`). Atualiza sozinho via polling (o loop de
 trading roda em heartbeats de dezenas de segundos a horas; não precisa de
 websocket pra parecer "tempo real").
 
+**Exceção deliberada e única à regra "só leitura"**: o card "A Mesa"
+(`/api/approve`, `/api/reject`) deixa VOCÊ aprovar ou recusar uma
+estratégia nova antes dela nascer — decisão explícita do usuário (ver
+CLAUDE.md). Isso não é o painel decidindo nada: é só o relay de UMA ação
+humana pra `Organism.approve_pending`/`reject_pending` (rodando no MESMO
+processo, ver `set_organism`). Toda lógica de julgamento continua 100% no
+Estrategista/Organism — o painel não julga estratégia nenhuma, só espelha
+o clique.
+
 Uso: iniciado junto com `main.py run_forever` (mesma porta do
 `config.dashboard_port`), ou standalone:
     python -c "import asyncio; from darwin_agent.dashboard import run_standalone; asyncio.run(run_standalone())"
@@ -24,11 +33,22 @@ except ImportError:
 
 DEFAULT_STATE_FILE = "data/population.json"
 _state_file = DEFAULT_STATE_FILE
+_organism = None  # ver set_organism — só usado pelas rotas de A Mesa (approve/reject)
 
 
 def set_state_file(path: str):
     global _state_file
     _state_file = path
+
+
+def set_organism(organism):
+    """Referência direta ao Organism vivo (mesmo processo, mesmo event
+    loop) — só pras rotas de aprovação humana (`handle_approve`/
+    `handle_reject`) chamarem `approve_pending`/`reject_pending`. Sem
+    Organism setado (painel standalone lendo só o JSON), essas rotas
+    recusam educadamente em vez de quebrar."""
+    global _organism
+    _organism = organism
 
 
 def _logs_dir() -> str:
@@ -116,6 +136,39 @@ async def handle_state(req):
         # próximo poll (3s depois) pega o arquivo já consistente.
         return web.json_response({"_empty": True, "_transient_error": True})
     return web.json_response(data)
+
+
+async def handle_approve(req):
+    """A Mesa — você aprovou uma proposta pendente, ela nasce de verdade
+    (ver módulo: única exceção à regra "só leitura", relay de 1 ação sua
+    pro `Organism.approve_pending`)."""
+    if _organism is None:
+        return web.json_response({"ok": False, "error": "Painel sem Organism vivo (rodando standalone?)"}, status=503)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "corpo inválido"}, status=400)
+    approval_id = body.get("id")
+    if not approval_id:
+        return web.json_response({"ok": False, "error": "faltou 'id'"}, status=400)
+    robot_id, reason = await _organism.approve_pending(approval_id)
+    return web.json_response({"ok": bool(robot_id), "robot_id": robot_id, "reason": reason})
+
+
+async def handle_reject(req):
+    """A Mesa — você recusou uma proposta pendente, ela é descartada (ver
+    módulo: única exceção à regra "só leitura")."""
+    if _organism is None:
+        return web.json_response({"ok": False, "error": "Painel sem Organism vivo (rodando standalone?)"}, status=503)
+    try:
+        body = await req.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "corpo inválido"}, status=400)
+    approval_id = body.get("id")
+    if not approval_id:
+        return web.json_response({"ok": False, "error": "faltou 'id'"}, status=400)
+    ok = _organism.reject_pending(approval_id, note=body.get("note", ""))
+    return web.json_response({"ok": ok})
 
 
 async def handle_index(req):
@@ -214,6 +267,17 @@ tbody tr:hover{background:#161c26}
 .rt-gain3{background:#15803d;color:#ffffff}
 #ops-list{max-height:520px;overflow-y:auto;padding-right:2px}
 #ops-blocks[hidden],#ops-list[hidden]{display:none}
+.approval-card{background:#0f1520;border:1px solid var(--y);border-radius:8px;padding:14px;margin-bottom:10px}
+.approval-card .ac-title{font-size:14px;font-weight:700;margin-bottom:2px}
+.approval-card .ac-sub{font-size:11px;color:var(--d);margin-bottom:8px}
+.approval-card .ac-why{background:#131a24;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:11px;line-height:1.6}
+.approval-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn-approve,.btn-reject{border-radius:6px;padding:7px 16px;font-size:12px;cursor:pointer;font-weight:600}
+.btn-approve{background:#14532d;color:var(--g);border:1px solid var(--g)}
+.btn-reject{background:#450a0a;color:var(--r);border:1px solid var(--r)}
+.btn-approve:hover{background:#16653a}
+.btn-reject:hover{background:#5c1414}
+.btn-approve:disabled,.btn-reject:disabled{opacity:.5;cursor:default}
 </style>
 </head>
 <body>
@@ -228,6 +292,18 @@ tbody tr:hover{background:#161c26}
 <div class="stat"><div class="n" id="st-total">-</div><div class="l">Já existiram</div></div>
 <div class="stat"><div class="n bl" id="st-capital">-</div><div class="l">Capital vivo</div></div>
 <div class="stat"><div class="n y" id="st-lb">-</div><div class="l">Estratégias no ranking</div></div>
+</div>
+
+<div class="card">
+<h2><span>A Mesa — aprovações pendentes</span><span class="mono" id="table-count"></span></h2>
+<div class="risk-caps" style="margin-bottom:10px">
+  <div class="risk-cap-box">
+    <div class="rc-label"><span>Cadeiras ocupadas ou reservadas</span><span id="table-seats-label">-</span></div>
+    <div class="rc-bar"><div class="rc-fill" id="table-seats-fill"></div></div>
+  </div>
+</div>
+<div class="risk-pending" id="table-cooldown"></div>
+<div id="table-approvals"></div>
 </div>
 
 <div class="card">
@@ -346,6 +422,87 @@ function fmtDurationSec(s){
   if(h>0) return h+'h '+m+'m';
   if(m>0) return m+'m '+s+'s';
   return s+'s';
+}
+
+function renderTable(table){
+  if(!table){
+    document.getElementById('table-seats-label').textContent='-';
+    document.getElementById('table-count').textContent='';
+    document.getElementById('table-cooldown').textContent='';
+    document.getElementById('table-approvals').innerHTML='';
+    return;
+  }
+  const pct = table.seats_max ? Math.min(100, table.seats_occupied/table.seats_max*100) : 0;
+  document.getElementById('table-seats-label').textContent = table.seats_occupied+' / '+table.seats_max
+    +' ('+table.seats_alive+' vivas + '+table.seats_pending+' pendentes)';
+  const fill = document.getElementById('table-seats-fill');
+  fill.style.width = pct+'%';
+  fill.className = 'rc-fill' + (pct>=100?' full':pct>=80?' warn':'');
+
+  const pending = table.pending_approvals || [];
+  document.getElementById('table-count').textContent = pending.length+' pendente(s)';
+  document.getElementById('table-cooldown').textContent = table.cooldown_ok ? '' : ('⏳ '+table.cooldown_reason);
+
+  const wrap = document.getElementById('table-approvals');
+  if(!pending.length){
+    wrap.innerHTML = '<div class="empty">Nenhuma proposta esperando sua aprovação agora</div>';
+    return;
+  }
+  wrap.innerHTML = pending.map(p=>{
+    const prop = p.proposal;
+    const chips = (prop.indicators||[]).map(i=>`<span class="chip">${esc(i)}</span>`).join('');
+    const tr = p.track_record || {};
+    const trText = tr.attempts
+      ? `${tr.attempts} tentativa(s) · ${tr.clones||0} clone(s) · ${tr.deaths||0} morte(s) · mortalidade ${((tr.death_rate||0)*100).toFixed(0)}%`
+      : 'nunca tentada antes nessa combinação (estratégia+ativo)';
+    const bt = p.backtest_summary;
+    const btText = bt
+      ? `Backtest: ${bt.trades} trades históricos, ${(bt.win_rate*100).toFixed(0)}% de acerto, retorno ${bt.total_return_pct>=0?'+':''}${bt.total_return_pct.toFixed(1)}%`
+      : 'Backtest: sem dados históricos suficientes ainda';
+    return `
+    <div class="approval-card">
+      <div class="ac-title">${esc(prop.name)}</div>
+      <div class="ac-sub">${esc(p.symbol)} · <span class="badge bb">${esc(prop.implementation)}</span> · ${esc(prop.timeframe)} · submetido ${fmtTime(p.submitted_at)}</div>
+      ${chips ? `<div style="margin-bottom:6px">${chips}</div>` : ''}
+      <div class="rc-row"><b>Entrada:</b> ${esc(prop.entry_rule)}</div>
+      <div class="rc-row"><b>Saída:</b> ${esc(prop.exit_rule)}</div>
+      <div class="rc-row"><b>Risco:</b> ${esc(prop.risk_management)}</div>
+      <div class="rc-row"><b>Fonte:</b> ${esc(prop.source)}</div>
+      <div class="ac-why">
+        <div><b>Track record dessa combinação:</b> ${esc(trText)}</div>
+        <div style="margin-top:4px"><b>Por que o Estrategista acha vencedora:</b></div>
+        <div>${esc(p.admit_reason||'')}</div>
+        <div>${esc(p.validate_reason||'')}</div>
+        <div>${esc(btText)}</div>
+      </div>
+      <div class="approval-actions">
+        <button class="btn-approve" onclick="approveProposal('${p.id}', this)">✓ Aprovar — sentar na mesa</button>
+        <button class="btn-reject" onclick="rejectProposal('${p.id}', this)">✕ Recusar</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function approveProposal(id, btn){
+  const card = btn.closest('.approval-card');
+  card.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{
+    const r = await fetch('/api/approve', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+    const d = await r.json();
+    if(!d.ok) alert('Não deu pra aprovar: '+(d.error||d.reason||'motivo desconhecido'));
+  }catch(e){ alert('Erro de rede ao aprovar'); }
+  tick();
+}
+
+async function rejectProposal(id, btn){
+  const card = btn.closest('.approval-card');
+  card.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{
+    const r = await fetch('/api/reject', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+    const d = await r.json();
+    if(!d.ok) alert('Não deu pra recusar: '+(d.error||'motivo desconhecido'));
+  }catch(e){ alert('Erro de rede ao recusar'); }
+  tick();
 }
 
 function renderRiskRoom(rr){
@@ -661,6 +818,7 @@ async function tick(){
       document.getElementById('ops-list').innerHTML='<div class="empty">-</div>';
       document.getElementById('eq-picker').innerHTML='<div class="eq-empty-list">-</div>';
       renderRiskRoom(null);
+      renderTable(null);
       return;
     }
 
@@ -704,6 +862,7 @@ async function tick(){
       </tr>`).join('') : '<tr><td colspan="14" class="empty">Nenhum robô nasceu ainda</td></tr>';
 
     renderRiskRoom(d.risk_room);
+    renderTable(d.table);
 
     robotMeta = {};
     for(const rb of robots){
@@ -746,12 +905,19 @@ def create_app():
     app.router.add_get("/api/state", handle_state)
     app.router.add_get("/api/positions", handle_positions)
     app.router.add_get("/api/history", handle_history)
+    app.router.add_post("/api/approve", handle_approve)
+    app.router.add_post("/api/reject", handle_reject)
     return app
 
 
-async def start_dashboard(port=8080, state_file: str = DEFAULT_STATE_FILE):
-    """Inicia o painel como task de longa duração (roda até ser cancelada)."""
+async def start_dashboard(port=8080, state_file: str = DEFAULT_STATE_FILE, organism=None):
+    """Inicia o painel como task de longa duração (roda até ser cancelada).
+    `organism` (opcional) é a instância viva — só necessária pra rota de A
+    Mesa (approve/reject) funcionar; sem ela o painel continua 100%
+    utilizável pra tudo que é leitura."""
     set_state_file(state_file)
+    if organism is not None:
+        set_organism(organism)
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()

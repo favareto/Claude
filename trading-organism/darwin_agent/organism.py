@@ -116,6 +116,13 @@ class Organism:
         # symbol, timeframe, params (só variant), queued_at}.
         self._pending_clones: List[dict] = []
 
+        # A Mesa — propostas de estratégia NOVA que já passaram por toda a
+        # análise automática, esperando SUA aprovação (ver
+        # `propose_and_spawn`/`approve_pending`/`reject_pending`). Clones
+        # não passam por aqui, só estratégias novas pedindo cadeira.
+        self._pending_approvals: Dict[str, dict] = {}
+        self._last_root_proposal_at: Optional[datetime] = None
+
     # ── Nascimento / clonagem / morte ──────────────────────────────
 
     def _pick_symbol(self) -> str:
@@ -204,6 +211,30 @@ class Organism:
             "by_asset": sorted(assets.values(), key=lambda a: -a["count"])[:30],
         }
 
+    def _table_report(self) -> dict:
+        """A Mesa pro painel: quantas cadeiras ocupadas, quanto falta pra
+        próxima janela de cadência, e a fila de aprovação com tudo que
+        você precisa decidir — texto da estratégia, track record real, e
+        por que o Estrategista acha que ela é vencedora."""
+        alive_roots = self._alive_root_count()
+        pending = sorted(self._pending_approvals.values(), key=lambda e: e["submitted_at"])
+        minutes_since_last = None
+        if self._last_root_proposal_at:
+            minutes_since_last = (_utcnow() - self._last_root_proposal_at).total_seconds() / 60
+        cooldown_ok, cooldown_reason = self.strategist.check_root_cooldown(minutes_since_last)
+        return {
+            # seats_occupied = vivas + pendentes (reservadas) — é essa soma
+            # que o teto realmente checa (ver propose_and_spawn), não só
+            # vivas, senão dava pra furar o teto enfileirando demais.
+            "seats_occupied": alive_roots + len(pending),
+            "seats_alive": alive_roots,
+            "seats_pending": len(pending),
+            "seats_max": self.strategist.MAX_ROOT_SEATS,
+            "cooldown_ok": cooldown_ok,
+            "cooldown_reason": cooldown_reason,
+            "pending_approvals": pending,
+        }
+
     async def _fetch_recent_candles(self, symbol: str, timeframe: str, limit: int = 300) -> list:
         """Busca candles históricos reais (mesmo adapter que os robôs usam)
         — uma única vez, reaproveitado tanto pelo currículo do Professor
@@ -282,17 +313,39 @@ class Organism:
             })
         return out
 
+    def _alive_root_count(self) -> int:
+        """Cadeiras ocupadas na mesa — robôs RAIZ (sem pai) vivos. Clones
+        não contam (multiplicação de uma estratégia já sentada, não uma
+        estratégia nova pedindo cadeira)."""
+        return sum(1 for r in self.records.values() if r.status == "alive" and r.parent_id is None)
+
     async def propose_and_spawn(self, proposal: StrategyProposal,
-                                symbol: Optional[str] = None) -> tuple:
-        """Fluxo Investigador -> Estrategista -> nascimento: cada proposta
-        trazida pelo Investigador e APROVADA pelo Estrategista gera
-        exatamente um avatar novo. Retorna (robot_id ou None, motivo). Duas
-        camadas de julgamento, qualquer uma pode recusar:
+                                symbol: Optional[str] = None,
+                                bypass_root_cooldown: bool = False) -> tuple:
+        """Fluxo Investigador -> Estrategista -> A MESA (aprovação humana)
+        -> nascimento. Retorna (robot_id ou None, motivo) — mas note que
+        numa proposta aprovada em tudo, `robot_id` ainda vem None: ela não
+        nasce aqui, só entra na fila de `_pending_approvals` esperando
+        você aprovar pelo painel (`approve_pending`/`reject_pending`).
+        Só clones (`_handle_clone`) nascem automáticos; toda ESTRATÉGIA
+        NOVA precisa da sua aprovação, decisão explícita do usuário.
+
+        `bypass_root_cooldown=True` é só pro bootstrap inicial (encher as
+        `MAX_ROOT_SEATS` cadeiras na largada) — depois disso, uma cadeira
+        vaga só é oferecida de novo ao Investigador a cada
+        `MIN_MINUTES_BETWEEN_ROOTS` minutos (ver `poll_strategy_feed`).
+
+        Camadas de julgamento, qualquer uma pode recusar, na ordem (mais
+        barata primeiro):
         1. Ranking (`leaderboard`): a proposta entra nas 500 estratégias
            ativas? Se o ranking está cheio, só entra sobrepondo a pior.
         2. Mérito por ativo (`TrackRecord`): mesmo já estando no ranking,
            essa combinação específica (estratégia+ativo) pode estar com
            histórico ruim o bastante pra recusar mais uma tentativa ali.
+        3. Cadeira na mesa + cadência entre novos traders.
+        4. Sala de Risco (teto de nicho/população) + backtest.
+        5. Você — a decisão final, "por que essa estratégia merece
+           sentar", fica na fila de aprovação.
         """
         symbol = symbol or proposal.asset_hint or self._pick_symbol()
 
@@ -305,8 +358,24 @@ class Organism:
         if not ok:
             return None, reason
 
-        # Sala de Risco — teto global e de concentração por nicho, ANTES de
-        # gastar tempo com backtest (checagem cara por último).
+        # A Mesa — cadeira vaga + cadência, antes de gastar tempo com
+        # backtest (checagem cara por último). Conta vivas + PENDENTES de
+        # aprovação juntas — sem isso, dava pra enfileirar 20 propostas e
+        # aprovar todas, furando o teto de 10 (nada bloquearia no momento
+        # da fila, só quando já fosse tarde demais).
+        occupied_or_reserved = self._alive_root_count() + len(self._pending_approvals)
+        ok, seat_reason = self.strategist.check_seat_availability(occupied_or_reserved)
+        if not ok:
+            return None, seat_reason
+        minutes_since_last = None
+        if self._last_root_proposal_at:
+            minutes_since_last = (_utcnow() - self._last_root_proposal_at).total_seconds() / 60
+        ok, cooldown_reason = self.strategist.check_root_cooldown(
+            None if bypass_root_cooldown else minutes_since_last)
+        if not ok:
+            return None, cooldown_reason
+
+        # Sala de Risco — teto global e de concentração por nicho.
         ok, cap_reason = self.strategist.check_population_capacity(self._alive_count_total())
         if not ok:
             return None, cap_reason
@@ -331,18 +400,69 @@ class Organism:
         if not ok:
             return None, bt_reason
 
+        approval_id = self._queue_for_approval(
+            proposal=proposal, symbol=symbol, curriculum=curriculum, track_record=track_record,
+            backtest_result=backtest_result, admit_reason=admit_reason, validate_reason=reason,
+            backtest_reason=bt_reason,
+        )
+        self._last_root_proposal_at = _utcnow()
+        return None, (f"Aprovada em toda a análise — aguardando você na mesa (id={approval_id}) | "
+                      f"{admit_reason} | {reason} | {bt_reason}")
+
+    def _queue_for_approval(self, proposal: StrategyProposal, symbol: str, curriculum: dict,
+                            track_record: TrackRecord, backtest_result: Optional[BacktestResult],
+                            admit_reason: str, validate_reason: str, backtest_reason: str) -> str:
+        """A Mesa — guarda tudo que você precisa pra decidir: o texto da
+        estratégia (nome/indicadores/regras), o track record real dessa
+        combinação (estratégia+ativo) até agora, e por que o Estrategista
+        acha que ela é vencedora (as 3 razões que já passou). Nada disso
+        nasce até `approve_pending`."""
+        approval_id = f"a-{uuid.uuid4().hex[:8]}"
+        self._pending_approvals[approval_id] = {
+            "id": approval_id,
+            "proposal": asdict(proposal),
+            "symbol": symbol,
+            "curriculum": curriculum,
+            "track_record": {
+                "attempts": track_record.attempts, "deaths": track_record.deaths,
+                "clones": track_record.clones, "death_rate": round(track_record.death_rate, 4),
+            },
+            "backtest_summary": asdict(backtest_result) if backtest_result else None,
+            "admit_reason": admit_reason,
+            "validate_reason": validate_reason,
+            "backtest_reason": backtest_reason,
+            "submitted_at": _utcnow().isoformat(),
+        }
+        return approval_id
+
+    async def approve_pending(self, approval_id: str) -> tuple:
+        """Você aprovou — a proposta finalmente vira um robô de verdade,
+        sentando na cadeira que estava reservada pra ela."""
+        entry = self._pending_approvals.pop(approval_id, None)
+        if not entry:
+            return None, "Proposta não encontrada (já aprovada, recusada, ou id inválido)"
+        proposal = StrategyProposal(**entry["proposal"])
         robot_id = f"r-{uuid.uuid4().hex[:8]}"
-        await self._spawn(robot_id, symbol, proposal.implementation, parent=None,
+        await self._spawn(robot_id, entry["symbol"], proposal.implementation, parent=None,
                           strategy_source=f"{proposal.name} — {proposal.source}",
                           strategy_id=proposal.strategy_id, timeframe=proposal.timeframe,
-                          strategy_params=curriculum,
+                          strategy_params=entry["curriculum"],
                           strategy_indicators=list(proposal.indicators),
                           strategy_entry_rule=proposal.entry_rule,
                           strategy_exit_rule=proposal.exit_rule,
                           strategy_risk_management=proposal.risk_management,
-                          backtest_summary=asdict(backtest_result) if backtest_result else None)
+                          backtest_summary=entry.get("backtest_summary"))
         self.strategist.register_strategy_attempt(proposal.strategy_id)
-        return robot_id, f"{admit_reason} | {reason} | {bt_reason}"
+        return robot_id, f"Aprovado por você — sentou na mesa especialista em {proposal.implementation}/{entry['symbol']}"
+
+    def reject_pending(self, approval_id: str, note: str = "") -> bool:
+        """Você recusou — descarta, libera a vaga reservada (que nem
+        tinha efetivamente ocupado nada, só estava na fila)."""
+        entry = self._pending_approvals.pop(approval_id, None)
+        if entry:
+            note_txt = f" — {note}" if note else ""
+            print(f"[A Mesa] recusado por você: '{entry['proposal']['name']}' em {entry['symbol']}{note_txt}")
+        return entry is not None
 
     async def _spawn(self, robot_id: str, symbol: str, strategy_name: str,
                      parent: Optional[DarwinAgentV2], strategy_source: str = "",
@@ -555,6 +675,7 @@ class Organism:
             "leaderboard_top": [e.to_dict() for e in leaderboard.top(20)],
             "track_records": self._all_track_records(),
             "risk_room": self._risk_room_report(),
+            "table": self._table_report(),
         }
         directory = os.path.dirname(self.state_file) or "."
         os.makedirs(directory, exist_ok=True)
@@ -609,6 +730,8 @@ class Organism:
             "saved_at": _utcnow().isoformat(),
             "next_symbol_idx": self._next_symbol_idx,
             "pending_clones": self._pending_clones,
+            "pending_approvals": self._pending_approvals,
+            "last_root_proposal_at": self._last_root_proposal_at.isoformat() if self._last_root_proposal_at else None,
             "leaderboard": [asdict(e) for e in self.strategist.leaderboard.all_entries()],
             "records": {rid: asdict(r) for rid, r in self.records.items()},
             "agent_states": agent_states,
@@ -638,6 +761,9 @@ class Organism:
 
         self._next_symbol_idx = data.get("next_symbol_idx", 0)
         self._pending_clones = data.get("pending_clones", [])
+        self._pending_approvals = data.get("pending_approvals", {})
+        last_root_at = data.get("last_root_proposal_at")
+        self._last_root_proposal_at = datetime.fromisoformat(last_root_at) if last_root_at else None
         for e in data.get("leaderboard", []):
             entry = LeaderboardEntry(**e)
             self.strategist.leaderboard._entries[entry.strategy_id] = entry

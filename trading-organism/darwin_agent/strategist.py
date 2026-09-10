@@ -95,6 +95,20 @@ class Strategist:
     MIN_BACKTEST_WIN_RATE = 0.35
     MAX_BACKTEST_LOSS_PCT = -20.0
 
+    # A Mesa (governança) — decisão explícita do usuário: novas ESTRATÉGIAS
+    # (não clones — clones continuam automáticos, sem gate humano) só
+    # sentam à mesa com aprovação humana, depois de passar por toda a
+    # análise automática acima. No máximo MAX_ROOT_SEATS estratégias
+    # distintas com um robô RAIZ vivo ao mesmo tempo — cada raiz que morre
+    # libera 1 cadeira (mesmo que a estratégia dela ainda tenha clones
+    # vivos — decisão do usuário: a cadeira é do ROBÔ raiz, não da
+    # linhagem inteira). Fora do bootstrap inicial (preencher a mesa),
+    # uma cadeira vaga só é oferecida ao Investigador a cada
+    # MIN_MINUTES_BETWEEN_ROOTS minutos — não é pra encher a mesa de novo
+    # instantaneamente.
+    MAX_ROOT_SEATS = 10
+    MIN_MINUTES_BETWEEN_ROOTS = 30
+
     def __init__(self, risk_config: RiskConfig):
         self._risk_config = risk_config
         self._risk_by_robot: Dict[str, RiskManager] = {}
@@ -208,6 +222,26 @@ class Strategist:
         if population_alive >= self.MAX_POPULATION_ALIVE:
             return False, f"população no teto da Sala de Risco ({population_alive}/{self.MAX_POPULATION_ALIVE} vivos)"
         return True, "população com capacidade"
+
+    def check_seat_availability(self, occupied_seats: int) -> Tuple[bool, str]:
+        """A Mesa — quantas cadeiras (estratégias distintas com robô raiz
+        vivo) já estão ocupadas. Sem vaga, nenhuma proposta nova (mesmo que
+        tecnicamente aprovada em tudo mais) pode sentar."""
+        if occupied_seats >= self.MAX_ROOT_SEATS:
+            return False, f"sem cadeira vaga na mesa ({occupied_seats}/{self.MAX_ROOT_SEATS} estratégias com raiz viva)"
+        return True, "cadeira disponível"
+
+    def check_root_cooldown(self, minutes_since_last_root: Optional[float]) -> Tuple[bool, str]:
+        """Cadência entre novos traders — mesmo com cadeira vaga, só oferece
+        a vaga ao Investigador a cada MIN_MINUTES_BETWEEN_ROOTS minutos.
+        `minutes_since_last_root=None` (nunca nasceu um raiz ainda, ou é o
+        bootstrap inicial) sempre libera."""
+        if minutes_since_last_root is None:
+            return True, "sem cadência anterior (primeira vez)"
+        if minutes_since_last_root < self.MIN_MINUTES_BETWEEN_ROOTS:
+            faltam = self.MIN_MINUTES_BETWEEN_ROOTS - minutes_since_last_root
+            return False, f"aguardando cadência entre novos traders (faltam ~{faltam:.0f}min)"
+        return True, "cadência liberada"
 
     def suggest_optimization(self, base_params: dict) -> dict:
         """Nicho já provado (no limite de robôs vivos) — em vez de mais uma
