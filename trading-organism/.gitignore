@@ -23,6 +23,7 @@ data/agent_state.json
 data/population.json
 data/organism_state.json
 data/history.jsonl
+data/events.jsonl
 
 # IDE
 .vscode/

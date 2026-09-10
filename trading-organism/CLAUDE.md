@@ -529,6 +529,45 @@ Aprovar/Recusar no painel de verdade (não só chamando o método Python
 direto) — o robô aprovado aparece em "Como cada robô opera" e no ranking,
 o recusado some da fila sem deixar rastro.
 
+### 10. Log de Eventos — janela separada — Feito
+
+Pedido explícito do usuário: um painel de risco (Sala de Risco) mostra o
+financeiro; faltava um segundo painel mostrando **o que está
+acontecendo** — "robô 1 foi eliminado, robô 2 foi promovido, Estrategista
+recusou tal coisa por tal motivo" — numa **janela própria**, separada do
+painel principal, pra deixar sempre aberta.
+
+`Organism._log_event(tipo, mensagem, **extra)` grava uma linha em
+`data/events.jsonl` (append-only, mesmo padrão de `history.jsonl`) —
+chamado em todo ponto de decisão real da população:
+- **Nascimento/clone/otimização** — em `_spawn` (ponto único, cobre robô
+  raiz aprovado, clone exato, variante de otimização, e pendência da Sala
+  de Risco atendida — todos passam por ali).
+- **Morte + rebaixamento** — em `_handle_death`, com a causa exata.
+- **Promoção** — em `_handle_clone`, quando bate +70%.
+- **Toda recusa do Estrategista em `propose_and_spawn`** — ranking cheio,
+  track record ruim, sem cadeira, cadência, teto de nicho/população,
+  backtest reprovado — cada uma com o motivo exato que já ia na resposta
+  da função, agora também registrado.
+- **Decisões da Mesa** — proposta entrou na fila esperando você, você
+  aprovou, você recusou.
+
+**Painel separado (`/eventos`)** — não é um card dentro do painel
+principal, é uma PÁGINA própria (`dashboard.py: EVENTS_HTML`,
+`handle_events_page`), com link "📜 Log de eventos ↗" no cabeçalho do
+painel principal (abre em nova aba). Lê `GET /api/events` (lê
+`events.jsonl`, mais recente primeiro). Lista de eventos com badge
+colorido por tipo (verde = nascimento/clone/promoção/aprovado, vermelho =
+morte/rebaixamento/recusado, amarelo = recusas do Estrategista/aguardando
+aprovação, azul = otimização), filtro por tipo, atualiza sozinho a cada 3s
+— igual o painel principal, só que mais leve (uma lista, não um dashboard
+inteiro) pra rodar numa janela à parte sem pesar.
+
+Testado com eventos reais de ponta a ponta (`simulate.py` gerando
+nascimento/aprovação, e um cenário forçado com clone + morte + recusa +
+pendência) e confirmado visualmente por screenshot — a página renderiza
+os 8 tipos de evento com badge/cor certos, e o filtro por tipo funciona.
+
 ## Regras de vida do robô (fixas — não mudar sem avisar)
 
 - Capital inicial: **$5** — todo robô nasce com $5, seja ele raiz ou clone.
@@ -798,3 +837,6 @@ A documentação de arquitetura original dos autores está preservada em
     cadeiras, cadência de 30min, painel com card de aprovação.~~ Feito —
     ver seção "A Mesa" acima. Testado de ponta a ponta inclusive clicando
     Aprovar/Recusar no painel de verdade via Playwright.
+21. ~~Log de eventos numa janela separada (nascimento/morte/clonagem/
+    promoção/recusas do Estrategista com motivo).~~ Feito — ver "Log de
+    Eventos" acima (`data/events.jsonl`, painel `/eventos`).

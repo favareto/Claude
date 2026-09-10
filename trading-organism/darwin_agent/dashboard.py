@@ -88,6 +88,39 @@ async def handle_history(req):
     return web.json_response({"history": out})
 
 
+def _events_file() -> str:
+    # data/population.json -> data/events.jsonl (mesma raiz de dados, ver
+    # Organism._log_event)
+    return os.path.join(os.path.dirname(_state_file) or "data", "events.jsonl")
+
+
+async def handle_events(req):
+    """Linha do tempo do que está acontecendo (nasceu, morreu, clonou, foi
+    recusado e por quê, decisões da Mesa) — pra janela separada `/eventos`
+    (ver Organism._log_event). Devolve as últimas `limit` linhas, mais
+    recente primeiro."""
+    limit = int(req.query.get("limit", "300"))
+    path = _events_file()
+    if not os.path.exists(path):
+        return web.json_response({"events": []})
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except OSError:
+        return web.json_response({"events": []})
+    out = []
+    for line in lines[-limit:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    out.reverse()  # mais recente primeiro
+    return web.json_response({"events": out})
+
+
 async def handle_positions(req):
     """Posições fechadas recentes de toda a população — hora de entrada,
     lado (buy/sell), hora de saída, preços, P&L. Lê os arquivos
@@ -284,7 +317,7 @@ tbody tr:hover{background:#161c26}
 <div class="c">
 <div class="hdr">
 <h1>🧬 PAINEL DE APURAÇÕES</h1>
-<div><span class="tag" id="updated"></span> <span class="dot dot-g" id="dot"></span></div>
+<div><a href="/eventos" target="_blank" class="vtbtn" style="text-decoration:none;display:inline-block;margin-right:8px">📜 Log de eventos ↗</a><span class="tag" id="updated"></span> <span class="dot dot-g" id="dot"></span></div>
 </div>
 
 <div class="stats">
@@ -897,12 +930,141 @@ tickHistory(); setInterval(tickHistory, 5000);
 </html>"""
 
 
+EVENTS_HTML = """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Log de Eventos — Organismo de Trade</title>
+<style>
+:root{--bg:#0a0e14;--s:#131920;--b:#1e2530;--t:#d4d8de;--d:#6b7280;--g:#22c55e;--r:#ef4444;--y:#eab308;--bl:#3b82f6}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--t);font-family:-apple-system,system-ui,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased}
+.c{max-width:900px;margin:0 auto;padding:12px}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--b);margin-bottom:12px;flex-wrap:wrap;gap:8px}
+.hdr h1{font-size:16px;color:var(--bl);letter-spacing:1px}
+.hdr .tag{font-size:11px;padding:3px 8px;border-radius:4px;background:#1e293b;color:var(--d)}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.dot-g{background:var(--g)}.dot-r{background:var(--r)}
+.controls{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+select{background:#0f1520;color:var(--t);border:1px solid var(--b);border-radius:6px;padding:6px 10px;font-size:12px}
+.count{font-size:11px;color:var(--d)}
+.ev{display:flex;gap:10px;padding:9px 10px;border-bottom:1px solid #161c26;align-items:baseline}
+.ev:hover{background:#111721}
+.ev-ts{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;color:var(--d);white-space:nowrap;flex:none;width:70px}
+.ev-badge{flex:none;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.ev-msg{font-size:12px;line-height:1.4;color:var(--t)}
+.b-birth{background:#14532d;color:var(--g)}
+.b-clone{background:#14532d;color:var(--g)}
+.b-optimization{background:#172554;color:var(--bl)}
+.b-promote{background:#14532d;color:var(--g)}
+.b-demote{background:#450a0a;color:var(--r)}
+.b-death{background:#450a0a;color:var(--r)}
+.b-refused{background:#422006;color:var(--y)}
+.b-queued{background:#422006;color:var(--y)}
+.b-approved{background:#14532d;color:var(--g)}
+.b-rejected{background:#450a0a;color:var(--r)}
+.empty{color:var(--d);text-align:center;padding:24px;font-size:12px}
+.ft{text-align:center;padding:8px;color:var(--d);font-size:11px}
+</style>
+</head>
+<body>
+<div class="c">
+<div class="hdr">
+<h1>📜 LOG DE EVENTOS</h1>
+<div><span class="tag" id="updated"></span> <span class="dot dot-g" id="dot"></span></div>
+</div>
+<div class="controls">
+  <select id="f-type">
+    <option value="">Todos os tipos</option>
+    <option value="birth">Nascimento</option>
+    <option value="clone">Clone</option>
+    <option value="optimization">Otimização</option>
+    <option value="promote">Promoção</option>
+    <option value="demote">Rebaixamento</option>
+    <option value="death">Morte</option>
+    <option value="refused_leaderboard,refused_track_record,refused_seat,refused_cooldown,refused_capacity,refused_backtest">Recusas do Estrategista</option>
+    <option value="queued_approval">Aguardando aprovação</option>
+    <option value="approved">Aprovado (você)</option>
+    <option value="rejected">Recusado (você)</option>
+  </select>
+  <span class="count" id="count"></span>
+</div>
+<div id="list"></div>
+<div class="ft">Janela separada, deixe aberta — atualiza a cada 3s. Fonte: <span style="font-family:monospace">data/events.jsonl</span></div>
+</div>
+<script>
+const BADGE = {
+  birth:['b-birth','🐣'], clone:['b-clone','🧬'], optimization:['b-optimization','🔬'],
+  promote:['b-promote','📈'], demote:['b-demote','📉'], death:['b-death','💀'],
+  refused_leaderboard:['b-refused','⛔'], refused_track_record:['b-refused','⛔'],
+  refused_seat:['b-refused','🪑'], refused_cooldown:['b-refused','⏳'],
+  refused_capacity:['b-refused','⛔'], refused_backtest:['b-refused','⛔'],
+  queued_approval:['b-queued','🪑'], approved:['b-approved','✓'], rejected:['b-rejected','✕'],
+};
+const LABEL = {
+  birth:'nasceu', clone:'clone', optimization:'otimização', promote:'promoção', demote:'rebaixamento',
+  death:'morte', refused_leaderboard:'recusa', refused_track_record:'recusa', refused_seat:'sem cadeira',
+  refused_cooldown:'cadência', refused_capacity:'sala de risco', refused_backtest:'backtest',
+  queued_approval:'aguardando', approved:'aprovado', rejected:'recusado',
+};
+function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+function fmtTime(iso){
+  const dt = new Date(iso);
+  return dt.toLocaleTimeString();
+}
+let allEvents = [];
+function render(){
+  const filterVal = document.getElementById('f-type').value;
+  const wanted = filterVal ? new Set(filterVal.split(',')) : null;
+  const events = wanted ? allEvents.filter(e=>wanted.has(e.type)) : allEvents;
+  document.getElementById('count').textContent = events.length+' evento(s)';
+  const list = document.getElementById('list');
+  if(!events.length){
+    list.innerHTML = '<div class="empty">Nenhum evento ainda</div>';
+    return;
+  }
+  list.innerHTML = events.map(e=>{
+    const [cls, icon] = BADGE[e.type] || ['b-refused','•'];
+    return `<div class="ev">
+      <div class="ev-ts">${fmtTime(e.ts)}</div>
+      <div class="ev-badge ${cls}">${icon} ${esc(LABEL[e.type]||e.type)}</div>
+      <div class="ev-msg">${esc(e.message)}</div>
+    </div>`;
+  }).join('');
+}
+async function tick(){
+  try{
+    const r = await fetch('/api/events?limit=300');
+    const d = await r.json();
+    allEvents = d.events || [];
+    document.getElementById('dot').className = 'dot dot-g';
+    document.getElementById('updated').textContent = new Date().toLocaleTimeString();
+    render();
+  }catch(e){
+    document.getElementById('dot').className = 'dot dot-r';
+  }
+}
+document.getElementById('f-type').addEventListener('change', render);
+tick(); setInterval(tick, 3000);
+</script>
+</body>
+</html>"""
+
+
+async def handle_events_page(req):
+    return web.Response(text=EVENTS_HTML, content_type="text/html")
+
+
 def create_app():
     if web is None:
         raise ImportError("pip install aiohttp")
     app = web.Application()
     app.router.add_get("/", handle_index)
+    app.router.add_get("/eventos", handle_events_page)
     app.router.add_get("/api/state", handle_state)
+    app.router.add_get("/api/events", handle_events)
     app.router.add_get("/api/positions", handle_positions)
     app.router.add_get("/api/history", handle_history)
     app.router.add_post("/api/approve", handle_approve)

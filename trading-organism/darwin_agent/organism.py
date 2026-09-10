@@ -102,6 +102,12 @@ class Organism:
         # processo (diferente de population.json, que é só o retrato pro
         # painel) — ver save_full_state/resume_from_state.
         self.full_state_file = os.path.join(os.path.dirname(state_file) or ".", "organism_state.json")
+        # Log de eventos — o que está ACONTECENDO (nasceu, morreu, clonou,
+        # foi recusado e por quê, decisões da Mesa), pra janela separada
+        # `/eventos` do painel (ver dashboard.py, CLAUDE.md). Diferente de
+        # population.json (o "agora") e history.jsonl (só capital) — aqui é
+        # a linha do tempo em texto.
+        self.events_file = os.path.join(os.path.dirname(state_file) or ".", "events.jsonl")
         self.heartbeat_by_timeframe = heartbeat_by_timeframe
 
         self.agents: Dict[str, DarwinAgentV2] = {}
@@ -351,11 +357,15 @@ class Organism:
 
         admitted, admit_reason = self.strategist.consider_new_strategy(proposal)
         if not admitted:
+            self._log_event("refused_leaderboard", f"Estrategista recusou '{proposal.name}' em {symbol}: {admit_reason}",
+                            proposal_name=proposal.name, symbol=symbol)
             return None, admit_reason
 
         track_record = self._track_record(proposal.implementation, symbol)
         ok, reason = self.strategist.validate_proposal(proposal, symbol, track_record)
         if not ok:
+            self._log_event("refused_track_record", f"Estrategista recusou '{proposal.name}' em {symbol}: {reason}",
+                            proposal_name=proposal.name, symbol=symbol)
             return None, reason
 
         # A Mesa — cadeira vaga + cadência, antes de gastar tempo com
@@ -366,6 +376,8 @@ class Organism:
         occupied_or_reserved = self._alive_root_count() + len(self._pending_approvals)
         ok, seat_reason = self.strategist.check_seat_availability(occupied_or_reserved)
         if not ok:
+            self._log_event("refused_seat", f"'{proposal.name}' em {symbol} recusada: {seat_reason}",
+                            proposal_name=proposal.name, symbol=symbol)
             return None, seat_reason
         minutes_since_last = None
         if self._last_root_proposal_at:
@@ -373,15 +385,21 @@ class Organism:
         ok, cooldown_reason = self.strategist.check_root_cooldown(
             None if bypass_root_cooldown else minutes_since_last)
         if not ok:
+            self._log_event("refused_cooldown", f"'{proposal.name}' em {symbol} recusada: {cooldown_reason}",
+                            proposal_name=proposal.name, symbol=symbol)
             return None, cooldown_reason
 
         # Sala de Risco — teto global e de concentração por nicho.
         ok, cap_reason = self.strategist.check_population_capacity(self._alive_count_total())
         if not ok:
+            self._log_event("refused_capacity", f"'{proposal.name}' em {symbol} recusada: {cap_reason}",
+                            proposal_name=proposal.name, symbol=symbol)
             return None, cap_reason
         niche_key = self._niche_key(proposal.strategy_id, symbol)
         ok, cap_reason = self.strategist.check_niche_capacity(self._alive_count_in_niche(niche_key))
         if not ok:
+            self._log_event("refused_capacity", f"'{proposal.name}' em {symbol} recusada: {cap_reason}",
+                            proposal_name=proposal.name, symbol=symbol)
             return None, cap_reason
 
         # Busca candles históricos reais UMA vez — o Professor usa pra
@@ -398,6 +416,8 @@ class Organism:
         backtest_result = self._run_backtest(proposal.implementation, curriculum, symbol, proposal.timeframe, candles)
         ok, bt_reason = self.strategist.judge_backtest(backtest_result)
         if not ok:
+            self._log_event("refused_backtest", f"'{proposal.name}' em {symbol} recusada: {bt_reason}",
+                            proposal_name=proposal.name, symbol=symbol)
             return None, bt_reason
 
         approval_id = self._queue_for_approval(
@@ -406,6 +426,8 @@ class Organism:
             backtest_reason=bt_reason,
         )
         self._last_root_proposal_at = _utcnow()
+        self._log_event("queued_approval", f"'{proposal.name}' em {symbol} passou em toda a análise — aguardando sua aprovação",
+                        proposal_name=proposal.name, symbol=symbol, approval_id=approval_id)
         return None, (f"Aprovada em toda a análise — aguardando você na mesa (id={approval_id}) | "
                       f"{admit_reason} | {reason} | {bt_reason}")
 
@@ -453,6 +475,8 @@ class Organism:
                           strategy_risk_management=proposal.risk_management,
                           backtest_summary=entry.get("backtest_summary"))
         self.strategist.register_strategy_attempt(proposal.strategy_id)
+        self._log_event("approved", f"Você aprovou '{proposal.name}' — {robot_id} sentou na mesa especialista em {proposal.implementation}/{entry['symbol']}",
+                        robot_id=robot_id, proposal_name=proposal.name, symbol=entry["symbol"])
         return robot_id, f"Aprovado por você — sentou na mesa especialista em {proposal.implementation}/{entry['symbol']}"
 
     def reject_pending(self, approval_id: str, note: str = "") -> bool:
@@ -462,6 +486,8 @@ class Organism:
         if entry:
             note_txt = f" — {note}" if note else ""
             print(f"[A Mesa] recusado por você: '{entry['proposal']['name']}' em {entry['symbol']}{note_txt}")
+            self._log_event("rejected", f"Você recusou '{entry['proposal']['name']}' em {entry['symbol']}{note_txt}",
+                            proposal_name=entry["proposal"]["name"], symbol=entry["symbol"])
         return entry is not None
 
     async def _spawn(self, robot_id: str, symbol: str, strategy_name: str,
@@ -502,6 +528,13 @@ class Organism:
                 backtest_summary=backtest_summary,
             )
             self.tasks[robot_id] = asyncio.create_task(agent.run())
+        is_variant = "otimização automática" in (strategy_source or "")
+        kind = "optimization" if is_variant else ("clone" if parent else "birth")
+        kind_label = "otimização (variante)" if is_variant else ("clone" if parent else "nasceu")
+        parent_txt = f" de {parent.robot_id}" if parent else ""
+        self._log_event(kind, f"{robot_id} {kind_label}{parent_txt} — especialista em {strategy_name}/{symbol}/{timeframe} com ${cfg.starting_capital:.2f}",
+                        robot_id=robot_id, symbol=symbol, strategy_name=strategy_name,
+                        parent_id=parent.robot_id if parent else None)
         self._save_state()
 
     async def _handle_clone(self, parent: DarwinAgentV2):
@@ -514,6 +547,8 @@ class Organism:
         # incondicionalmente.
         if parent_rec.strategy_id:
             self.strategist.promote_strategy(parent_rec.strategy_id)
+            self._log_event("promote", f"{parent.robot_id} bateu +70% — '{parent_rec.strategy_name}' em {parent_rec.symbol} promovida no ranking",
+                            robot_id=parent.robot_id, symbol=parent_rec.symbol, strategy_name=parent_rec.strategy_name)
 
         niche_key = self._niche_key(parent_rec.strategy_id, parent_rec.symbol)
         niche_ok, _ = self.strategist.check_niche_capacity(self._alive_count_in_niche(niche_key))
@@ -639,6 +674,11 @@ class Organism:
         # Eliminação (-60% do pico) rebaixa a estratégia no ranking.
         if rec and rec.strategy_id:
             self.strategist.demote_strategy(rec.strategy_id)
+            self._log_event("demote", f"{robot.robot_id} foi eliminado — '{rec.strategy_name}' em {rec.symbol} rebaixada no ranking",
+                            robot_id=robot.robot_id, symbol=rec.symbol, strategy_name=rec.strategy_name)
+        if rec:
+            self._log_event("death", f"{robot.robot_id} ({rec.strategy_name}/{rec.symbol}) foi eliminado: {cause}",
+                            robot_id=robot.robot_id, symbol=rec.symbol, strategy_name=rec.strategy_name, cause=cause)
         # Sala de Risco — a morte libera uma vaga (nesse nicho e na
         # população global); atende quem estava esperando, se houver.
         if rec:
@@ -683,6 +723,21 @@ class Organism:
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp, self.state_file)
+
+    def _log_event(self, event_type: str, message: str, **extra):
+        """Grava uma linha no log de eventos (`data/events.jsonl`,
+        append-only) — a linha do tempo em texto do que está acontecendo
+        (nasceu, morreu, clonou, foi recusado e por quê, decisões da
+        Mesa), pra janela separada `/eventos` do painel. Só registra —
+        não decide nada, mesmo espírito de `_record_history`."""
+        record = {"ts": _utcnow().isoformat(), "type": event_type, "message": message, **extra}
+        directory = os.path.dirname(self.events_file) or "."
+        os.makedirs(directory, exist_ok=True)
+        try:
+            with open(self.events_file, "a") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception:
+            pass
 
     def _record_history(self):
         """Grava um snapshot no tempo (append-only, `data/history.jsonl`) —
