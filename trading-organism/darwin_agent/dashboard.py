@@ -202,9 +202,10 @@ tbody tr:hover{background:#161c26}
 .vtbtn{background:#0f1520;color:var(--d);border:1px solid var(--b);border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer}
 .vtbtn.active{background:#172554;color:var(--bl);border-color:var(--bl)}
 .robot-tiles{display:flex;flex-wrap:wrap;gap:6px;max-height:420px;overflow-y:auto;padding:2px}
-.robot-tile{width:58px;height:58px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;line-height:1.3;cursor:default;user-select:none;flex:none}
-.robot-tile .rt-sym{font-size:9px;opacity:.85;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52px}
-.robot-tile .rt-val{font-size:11px;font-weight:700}
+.robot-tile{width:68px;height:62px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;line-height:1.3;cursor:default;user-select:none;flex:none}
+.robot-tile .rt-sym{font-size:9px;opacity:.85;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62px}
+.robot-tile .rt-val{font-size:12px;font-weight:700;white-space:nowrap}
+.robot-tile .rt-pct{font-size:9px;opacity:.85}
 .rt-dead{background:#3f1414;color:#fca5a5}
 .rt-loss{background:#5c1a1a;color:#fecaca}
 .rt-flat{background:#27272a;color:var(--t)}
@@ -593,10 +594,11 @@ function renderOpsBlocks(robots){
     const gainPct = (rb.capital - STARTING_CAPITAL) / STARTING_CAPITAL * 100;
     const t = lastTrByKey[rb.strategy_name+'|'+rb.symbol];
     const bucket = resultBucket(rb.status, gainPct);
-    const valLabel = rb.status==='alive' ? (gainPct>=0?'+':'')+gainPct.toFixed(0)+'%' : '✕';
+    const pctLabel = (gainPct>=0?'+':'')+gainPct.toFixed(0)+'%';
     return `<div class="robot-tile ${bucket}" title="${esc(robotTooltip(rb, t))}">
-      <div class="rt-sym">${esc(rb.symbol)}</div>
-      <div class="rt-val">${valLabel}</div>
+      <div class="rt-sym">${rb.status==='dead'?'✕ ':''}${esc(rb.symbol)}</div>
+      <div class="rt-val">${money(rb.capital)}</div>
+      <div class="rt-pct">${pctLabel}</div>
     </div>`;
   }).join('');
 }
@@ -617,7 +619,8 @@ function renderOpsList(robots){
     <div class="robot-card">
       <div class="rc-hdr"><span class="rc-id">${esc(rb.id)}</span>${statusBadge(rb.status)}</div>
       <div class="rc-title">${esc(rb.symbol)} · ${esc(rb.strategy_name)} · ${esc(rb.timeframe)}</div>
-      <div class="rc-sub">${money(rb.capital)} (pico ${money(rb.peak_capital)}) · ${rb.total_trades||0} trades · ${rb.clones_generated||0} clones</div>
+      <div class="rc-sub">${rb.total_trades||0} trades · ${rb.clones_generated||0} clones</div>
+      <div class="rc-row"><b>Saldo acumulado:</b> ${money(rb.capital)} (pico ${money(rb.peak_capital)})</div>
       ${chips ? `<div style="margin-bottom:6px">${chips}</div>` : ''}
       <div class="rc-row"><b>Entrada:</b> ${esc(rb.strategy_entry_rule || '—')}</div>
       <div class="rc-row"><b>Saída:</b> ${esc(rb.strategy_exit_rule || '—')}</div>

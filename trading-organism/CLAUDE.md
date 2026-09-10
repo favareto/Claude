@@ -224,14 +224,16 @@ seção 6), este é o substituto: dois modos de visão, alternáveis por botão
 (`▦ Blocos` / `☰ Lista`), sem recarregar dados (cache local do último
 `/api/state`, `renderOpsSection()` em `dashboard.py`):
 - **Blocos (padrão, leve)** — um pequeno retângulo arredondado por robô
-  (`.robot-tile`, ~58px), cor pelo RESULTADO (verde por faixas de ganho,
-  cinza pra flat, vermelho pra perda/morto, "✕" nos mortos), texto mínimo
-  (ativo + %), detalhe completo (estratégia, capital, trades, entrada/
+  (`.robot-tile`, ~68x62px), cor pelo RESULTADO (verde por faixas de ganho,
+  cinza pra flat, vermelho pra perda/morto, "✕" nos mortos), mostrando
+  ativo + **saldo acumulado em $** (não só %) + % de ganho/perda como linha
+  secundária, detalhe completo (estratégia, capital, trades, entrada/
   saída/risco, histórico do Estrategista, causa da morte) no tooltip
   (`title`, sem JS extra). Sem teto de exibição — testado com 70 robôs
   simultâneos, renderiza tudo (viável porque cada bloco é pequeno; o antigo
   card grande tinha um teto de 40 por peso visual).
 - **Lista (detalhado)** — os cards antigos (símbolo, estratégia, timeframe,
+  **saldo acumulado explícito** ("Saldo acumulado: $X (pico $Y)"),
   indicadores em chips, entrada/saída/risco por extenso, e o **histórico do
   Estrategista pra aquela combinação exata** — estratégia+ativo: tentativas,
   clones, mortes, % de mortalidade, o mesmo número que
