@@ -198,6 +198,21 @@ tbody tr:hover{background:#161c26}
 .risk-pending{margin-bottom:10px;font-size:11px;color:var(--y)}
 .risk-tables{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media(max-width:700px){.risk-tables{grid-template-columns:1fr}}
+.view-toggle{display:flex;gap:6px;margin-bottom:10px}
+.vtbtn{background:#0f1520;color:var(--d);border:1px solid var(--b);border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer}
+.vtbtn.active{background:#172554;color:var(--bl);border-color:var(--bl)}
+.robot-tiles{display:flex;flex-wrap:wrap;gap:6px;max-height:420px;overflow-y:auto;padding:2px}
+.robot-tile{width:58px;height:58px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;line-height:1.3;cursor:default;user-select:none;flex:none}
+.robot-tile .rt-sym{font-size:9px;opacity:.85;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52px}
+.robot-tile .rt-val{font-size:11px;font-weight:700}
+.rt-dead{background:#3f1414;color:#fca5a5}
+.rt-loss{background:#5c1a1a;color:#fecaca}
+.rt-flat{background:#27272a;color:var(--t)}
+.rt-gain1{background:#14532d;color:#86efac}
+.rt-gain2{background:#166534;color:#bbf7d0}
+.rt-gain3{background:#15803d;color:#ffffff}
+#ops-list{max-height:520px;overflow-y:auto;padding-right:2px}
+#ops-blocks[hidden],#ops-list[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -263,7 +278,12 @@ tbody tr:hover{background:#161c26}
 
 <div class="card">
 <h2><span>Como cada robô opera — estratégia e histórico do Estrategista</span><span class="mono" id="ops-count"></span></h2>
-<div id="ops-grid" class="robot-cards"></div>
+<div class="view-toggle">
+  <button id="ops-view-blocks" class="vtbtn active">▦ Blocos</button>
+  <button id="ops-view-list" class="vtbtn">☰ Lista</button>
+</div>
+<div id="ops-blocks" class="robot-tiles"></div>
+<div id="ops-list" class="robot-cards" hidden></div>
 </div>
 
 <div class="card">
@@ -537,6 +557,94 @@ async function tickPositions(){
   }
 }
 
+let lastOpsRobots = [];
+let lastTrByKey = {};
+let opsView = 'blocks';
+const STARTING_CAPITAL = 5.0; // regra fixa do organismo (ver CLAUDE.md) — todo robô nasce com $5
+
+function resultBucket(status, gainPct){
+  if(status!=='alive') return 'rt-dead';
+  if(gainPct>=50) return 'rt-gain3';
+  if(gainPct>=15) return 'rt-gain2';
+  if(gainPct>=2) return 'rt-gain1';
+  if(gainPct>=-15) return 'rt-flat';
+  return 'rt-loss';
+}
+
+function robotTooltip(rb, t){
+  const lines = [
+    `${rb.id} (${rb.status==='alive'?'vivo':'morto'})`,
+    `${rb.symbol} · ${rb.strategy_name} · ${rb.timeframe}`,
+    `Capital: ${money(rb.capital)} (pico ${money(rb.peak_capital)}) · DD ${(rb.drawdown_pct||0).toFixed(1)}%`,
+    `${rb.total_trades||0} trades · WR ${((rb.win_rate||0)*100).toFixed(0)}% · ${rb.clones_generated||0} clones`,
+    `Entrada: ${rb.strategy_entry_rule||'—'}`,
+    `Saída: ${rb.strategy_exit_rule||'—'}`,
+    `Risco: ${rb.strategy_risk_management||'—'}`,
+  ];
+  if(t) lines.push(`Histórico do Estrategista: ${t.attempts} tentativa(s) · ${t.clones} clone(s) · ${t.deaths} morte(s) · mortalidade ${(t.death_rate*100).toFixed(0)}%`);
+  if(rb.status==='dead' && rb.cause_of_death) lines.push(`Causa da morte: ${rb.cause_of_death}`);
+  return lines.join('\\n');
+}
+
+function renderOpsBlocks(robots){
+  const wrap = document.getElementById('ops-blocks');
+  if(!robots.length){ wrap.innerHTML = '<div class="empty">Nenhum robô nasceu ainda</div>'; return; }
+  wrap.innerHTML = robots.map(rb=>{
+    const gainPct = (rb.capital - STARTING_CAPITAL) / STARTING_CAPITAL * 100;
+    const t = lastTrByKey[rb.strategy_name+'|'+rb.symbol];
+    const bucket = resultBucket(rb.status, gainPct);
+    const valLabel = rb.status==='alive' ? (gainPct>=0?'+':'')+gainPct.toFixed(0)+'%' : '✕';
+    return `<div class="robot-tile ${bucket}" title="${esc(robotTooltip(rb, t))}">
+      <div class="rt-sym">${esc(rb.symbol)}</div>
+      <div class="rt-val">${valLabel}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderOpsList(robots){
+  const wrap = document.getElementById('ops-list');
+  if(!robots.length){ wrap.innerHTML = '<div class="empty">Nenhum robô nasceu ainda</div>'; return; }
+  wrap.innerHTML = '<div class="robot-cards">' + robots.map(rb=>{
+    const t = lastTrByKey[rb.strategy_name+'|'+rb.symbol];
+    const chips = (rb.strategy_indicators||[]).map(i=>`<span class="chip">${esc(i)}</span>`).join('');
+    const trackHtml = t ? `
+      <div class="trackbox">
+        <div class="tr-title">Histórico do Estrategista — ${esc(rb.strategy_name)} em ${esc(rb.symbol)}</div>
+        ${t.attempts} tentativa(s) · <span class="g">${t.clones} clone(s)</span> · <span class="r">${t.deaths} morte(s)</span>
+        · mortalidade <span class="${t.death_rate>=0.5?'r':''}">${(t.death_rate*100).toFixed(0)}%</span>
+      </div>` : '';
+    return `
+    <div class="robot-card">
+      <div class="rc-hdr"><span class="rc-id">${esc(rb.id)}</span>${statusBadge(rb.status)}</div>
+      <div class="rc-title">${esc(rb.symbol)} · ${esc(rb.strategy_name)} · ${esc(rb.timeframe)}</div>
+      <div class="rc-sub">${money(rb.capital)} (pico ${money(rb.peak_capital)}) · ${rb.total_trades||0} trades · ${rb.clones_generated||0} clones</div>
+      ${chips ? `<div style="margin-bottom:6px">${chips}</div>` : ''}
+      <div class="rc-row"><b>Entrada:</b> ${esc(rb.strategy_entry_rule || '—')}</div>
+      <div class="rc-row"><b>Saída:</b> ${esc(rb.strategy_exit_rule || '—')}</div>
+      <div class="rc-row"><b>Risco:</b> ${esc(rb.strategy_risk_management || '—')}</div>
+      ${trackHtml}
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function renderOpsSection(){
+  const robots = lastOpsRobots.slice().sort((a,b)=>{
+    if(a.status!==b.status) return a.status==='alive'?-1:1;
+    return new Date(b.born_at)-new Date(a.born_at);
+  });
+  document.getElementById('ops-count').textContent = robots.length;
+  if(opsView==='blocks') renderOpsBlocks(robots); else renderOpsList(robots);
+}
+
+function setOpsView(view){
+  opsView = view;
+  document.getElementById('ops-view-blocks').classList.toggle('active', view==='blocks');
+  document.getElementById('ops-view-list').classList.toggle('active', view==='list');
+  document.getElementById('ops-blocks').hidden = view!=='blocks';
+  document.getElementById('ops-list').hidden = view!=='list';
+  renderOpsSection();
+}
+
 async function tick(){
   try{
     const r=await fetch('/api/state');
@@ -546,7 +654,8 @@ async function tick(){
     if(d._empty){
       document.getElementById('pop-body').innerHTML='<tr><td colspan="14" class="empty">Nenhum estado de população encontrado ainda — inicie o Organism (main.py ou simulate.py).</td></tr>';
       document.getElementById('lb-body').innerHTML='<tr><td colspan="8" class="empty">-</td></tr>';
-      document.getElementById('ops-grid').innerHTML='<div class="empty">-</div>';
+      document.getElementById('ops-blocks').innerHTML='<div class="empty">-</div>';
+      document.getElementById('ops-list').innerHTML='<div class="empty">-</div>';
       document.getElementById('eq-picker').innerHTML='<div class="eq-empty-list">-</div>';
       renderRiskRoom(null);
       return;
@@ -602,41 +711,16 @@ async function tick(){
     renderPicker();
     renderChart();
 
-    const trByKey = {};
-    for(const t of (d.track_records||[])) trByKey[t.strategy_name+'|'+t.symbol] = t;
-    const liveFirst = robots.slice().sort((a,b)=>{
-      if(a.status!==b.status) return a.status==='alive'?-1:1;
-      return new Date(b.born_at)-new Date(a.born_at);
-    });
-    const MAX_CARDS = 40;
-    const shown = liveFirst.slice(0, MAX_CARDS);
-    document.getElementById('ops-count').textContent = robots.length+(robots.length>MAX_CARDS?(' (mostrando '+MAX_CARDS+')'):'');
-    document.getElementById('ops-grid').innerHTML = shown.length ? shown.map(rb=>{
-      const t = trByKey[rb.strategy_name+'|'+rb.symbol];
-      const chips = (rb.strategy_indicators||[]).map(i=>`<span class="chip">${esc(i)}</span>`).join('');
-      const trackHtml = t ? `
-        <div class="trackbox">
-          <div class="tr-title">Histórico do Estrategista — ${esc(rb.strategy_name)} em ${esc(rb.symbol)}</div>
-          ${t.attempts} tentativa(s) · <span class="g">${t.clones} clone(s)</span> · <span class="r">${t.deaths} morte(s)</span>
-          · mortalidade <span class="${t.death_rate>=0.5?'r':''}">${(t.death_rate*100).toFixed(0)}%</span>
-        </div>` : '';
-      return `
-      <div class="robot-card">
-        <div class="rc-hdr"><span class="rc-id">${esc(rb.id)}</span>${statusBadge(rb.status)}</div>
-        <div class="rc-title">${esc(rb.symbol)} · ${esc(rb.strategy_name)} · ${esc(rb.timeframe)}</div>
-        <div class="rc-sub">${money(rb.capital)} (pico ${money(rb.peak_capital)}) · ${rb.total_trades||0} trades · ${rb.clones_generated||0} clones</div>
-        ${chips ? `<div style="margin-bottom:6px">${chips}</div>` : ''}
-        <div class="rc-row"><b>Entrada:</b> ${esc(rb.strategy_entry_rule || '—')}</div>
-        <div class="rc-row"><b>Saída:</b> ${esc(rb.strategy_exit_rule || '—')}</div>
-        <div class="rc-row"><b>Risco:</b> ${esc(rb.strategy_risk_management || '—')}</div>
-        ${trackHtml}
-      </div>`;
-    }).join('') + (robots.length>MAX_CARDS ? `<div class="more-note">+ ${robots.length-MAX_CARDS} robô(s) a mais — veja a tabela População acima</div>` : '')
-      : '<div class="empty">Nenhum robô nasceu ainda</div>';
+    lastOpsRobots = robots;
+    lastTrByKey = {};
+    for(const t of (d.track_records||[])) lastTrByKey[t.strategy_name+'|'+t.symbol] = t;
+    renderOpsSection();
   }catch(e){
     document.getElementById('dot').className='dot dot-r';
   }
 }
+document.getElementById('ops-view-blocks').addEventListener('click', ()=>setOpsView('blocks'));
+document.getElementById('ops-view-list').addEventListener('click', ()=>setOpsView('list'));
 document.getElementById('eq-f-strategy').addEventListener('change', renderPicker);
 document.getElementById('eq-f-symbol').addEventListener('change', renderPicker);
 document.getElementById('eq-f-status').addEventListener('change', renderPicker);

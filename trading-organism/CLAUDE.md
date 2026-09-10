@@ -171,38 +171,21 @@ curado de ~30 pares líquidos se a rede falhar). Não é um sistema fechado
 de Bitcoin/Ethereum: qualquer ativo negociável na exchange integrada entra
 no pool de onde o Organism sorteia especialistas.
 
-### 6. Visualizador
-Ambiente 2D top-down (estilo Tibia): bonequinhos sentados numa mesa
-operando, saldo aparece acima da cabeça, quem não está operando fica de pé
-numa "lanchonete virtual". Quando um robô é eliminado, ele simplesmente
-desaparece da cena e passa a existir só como registro no painel de
-apurações.
-Lê o estado do Macro-organismo — não tem lógica de decisão nenhuma.
+### 6. Visualizador — ABANDONADO (decisão explícita)
+Ideia original: ambiente 2D top-down estilo Tibia/escritório (bonequinhos
+sentados operando, Estrategista/Investigador/Macro-organismo como salas
+especiais). Chegou a ser avaliada com referência de mercado
+(`paulrobello/claude-office`, MIT, Next.js+PixiJS+FastAPI — visual bem
+próximo do que se imaginava aqui) e esbarrou num problema real de escala
+nunca resolvido: população sem teto de nicho não escala visualmente num
+escritório literal sem alguma estratégia de agregação por andares/salas.
 
-**Conceito ampliado (discutido, ainda não construído):** escritório com
-hierarquia visível — robôs-trader sentados em mesas/computadores no chão
-do escritório; o Estrategista numa mesa/sala de supervisão (visão de
-"head de operações", mostrando o ranking); o Investigador numa mesa de
-pesquisa por perto; o Macro-organismo representado como a "sala da
-presidência"/painel central, com a visão consolidada de tudo.
-
-**Problema real de escala, sem resposta fácil ainda:** a população não tem
-teto (ver Regras de vida) — pode crescer pra centenas ou milhares de
-robôs. Um escritório literal com todo mundo visível numa tela só não
-escala visualmente passado umas poucas dezenas de bonequinhos. Não dá pra
-"escanear" (renderizar) a população inteira de uma vez de forma legível
-sem alguma estratégia de agregação — andares/salas por faixa de
-performance, uma visão de grade/heatmap pra escala + clique pra abrir o
-escritório individual, ou um teto de bonequinhos visíveis com o resto
-resumido num contador. Isso precisa de uma decisão de design antes de
-qualquer código de jogo — o painel de apurações (tabela, já pronto) não
-tem esse problema porque tabela escala por scroll/paginação, jogo com
-sprites não escala do mesmo jeito.
-
-Stack sugerida (ainda a mesma da concepção original, não mudou):
-Phaser.js + Tiled. É um projeto de verdade à parte (arte de sprite, mapa,
-lógica de câmera/interação) — maior que qualquer peça construída até
-agora nesta sessão.
+**Decisão do usuário: abandonar o jogo/escritório 2D.** Em vez disso, o
+painel de apurações (dados, tabela/grade) é o único "visual" do sistema —
+mais leve, mais informativo, e escala por scroll em vez de sprites.
+Não retomar esta ideia sem o usuário pedir explicitamente de novo. Ver
+"Como cada robô opera" na seção 7 pra como a visão por robô foi resolvida
+dentro do painel (blocos coloridos + lista).
 
 ### 7. Painel de apurações
 Dashboard com o histórico completo: todo robô que já existiu, pico de
@@ -236,19 +219,32 @@ Nota de escala: a API varre todos os arquivos `trades_*.jsonl` a cada
 consulta — funciona bem nesta fase, mas com centenas de robôs vai precisar
 de índice/banco em vez de varrer arquivo por arquivo.
 
-**Como cada robô opera** — cards por robô mostrando símbolo, estratégia,
-timeframe, indicadores (chips), regra de entrada/saída/risco em linguagem
-clara, e o **histórico do Estrategista pra aquela combinação exata**
-(estratégia+ativo): quantas tentativas, quantos clones, quantas mortes,
-% de mortalidade — o mesmo número que `Strategist.validate_proposal` usa
-pra julgar, agora visível. `organism.py`: `RobotRecord` ganhou os campos
+**Como cada robô opera** — depois de abandonar o Visualizador 2D (ver
+seção 6), este é o substituto: dois modos de visão, alternáveis por botão
+(`▦ Blocos` / `☰ Lista`), sem recarregar dados (cache local do último
+`/api/state`, `renderOpsSection()` em `dashboard.py`):
+- **Blocos (padrão, leve)** — um pequeno retângulo arredondado por robô
+  (`.robot-tile`, ~58px), cor pelo RESULTADO (verde por faixas de ganho,
+  cinza pra flat, vermelho pra perda/morto, "✕" nos mortos), texto mínimo
+  (ativo + %), detalhe completo (estratégia, capital, trades, entrada/
+  saída/risco, histórico do Estrategista, causa da morte) no tooltip
+  (`title`, sem JS extra). Sem teto de exibição — testado com 70 robôs
+  simultâneos, renderiza tudo (viável porque cada bloco é pequeno; o antigo
+  card grande tinha um teto de 40 por peso visual).
+- **Lista (detalhado)** — os cards antigos (símbolo, estratégia, timeframe,
+  indicadores em chips, entrada/saída/risco por extenso, e o **histórico do
+  Estrategista pra aquela combinação exata** — estratégia+ativo: tentativas,
+  clones, mortes, % de mortalidade, o mesmo número que
+  `Strategist.validate_proposal` usa pra julgar), agora dentro de um
+  contêiner com scroll pra não pesar a página inteira.
+
+Dados por trás dos dois modos: `organism.py`: `RobotRecord` tem os campos
 de descrição da estratégia (`strategy_indicators/entry_rule/exit_rule/
 risk_management`, herdados pelo clone do pai) e `Organism._all_track_records()`
 calcula o histórico por (estratégia, ativo) pra toda combinação que já
-existiu, incluído em `population.json` como `track_records`. Testado:
-gerei uma população com uma combinação repetida (2 tentativas, 1 morte) e
-confirmei no card exatamente "2 tentativa(s) · 0 clone(s) · 1 morte(s) ·
-mortalidade 50%".
+existiu, incluído em `population.json` como `track_records`. Testado com
+screenshot real nos dois modos (70 robôs sintéticos, ganhos/perdas
+variados) e confirmando a troca de modo sem duplicar exibição.
 
 **Patrimônio (gráfico de evolução do capital)** — decisão revista: o
 gráfico de preço/candle continua fora (pesa a operação sem necessidade),
@@ -480,7 +476,7 @@ A documentação de arquitetura original dos autores está preservada em
 | Timeframe como parte da especialização (1min "diarista" convivendo com 1w "position") | Não (`scan_timeframe` era global, só até 1d) | **Feito** — `StrategyProposal.timeframe`, `TimeFrame.W1` adicionado, `Organism._new_config` aplica por robô; `heartbeat_by_timeframe=True` (main.py) escala o intervalo de checagem pelo timeframe (1min→30s, 1w→6h) — não faz sentido um robô semanal pollar toda hora |
 | Conexão com exchange / paper trading | Sim (Bybit testnet + paper) | Reaproveitado sem mudanças — `markets/crypto.py` |
 | Simulação pura (sem exchange, sem chaves) | Não | **Novo** — `markets/simulated.py: SimulatedMarketAdapter` (preços sintéticos), usado por `simulate.py` |
-| Visualização 2D estilo Tibia (bonequinhos, escritório) | Não (dashboard web simples) | **Pendente** — decisão de design em aberto (ver seção "Visualizador 2D" abaixo); painel de apurações (tabela) já cobre a parte de dados, o "jogo" em si ainda não foi construído |
+| Visualização 2D estilo Tibia (bonequinhos, escritório) | Não (dashboard web simples) | **Abandonado por decisão do usuário** — ver seção "Visualizador" acima. Substituído por blocos coloridos + lista no painel de apurações |
 | Painel de apurações | Parcial (`evolution/dna.py: create_death_report`, por geração/linhagem) | **Feito** — `dashboard.py` reescrito, tempo real, lendo `data/population.json`. Testado com screenshot de verdade (Chromium headless) sobre dados com clonagem em cadeia e morte |
 
 ## Próximos passos sugeridos
@@ -573,13 +569,26 @@ A documentação de arquitetura original dos autores está preservada em
     verdade). Próximo passo natural: guiar a otimização automática por
     atribuição real (qual parâmetro historicamente correlaciona com melhor
     resultado), hoje é jitter aleatório.
-14. Visualizador 2D (o "jogo" — escritório, bonequinhos, Estrategista/
-    Investigador/Macro-organismo como estações especiais): decisão de
-    design pendente sobre como lidar com escala (população sem teto vs.
-    tela renderizável) antes de escrever qualquer código — ver seção
-    "Visualizador" acima. Evoluir o julgamento do Estrategista (hoje é
-    regra de threshold + pesquisa determinística) pra um agente/LLM com
-    mais nuance ainda. Testar contra a Bybit testnet de verdade
+14. ~~Visualizador 2D (o "jogo").~~ **Abandonado por decisão do usuário** —
+    ver seção "Visualizador" acima. Não retomar sem pedido explícito.
+15. ~~Painel: substituir os cards grandes de "Como cada robô opera" (com
+    teto de 40 por peso visual) por algo mais leve.~~ Feito — toggle
+    Blocos/Lista, ver "Como cada robô opera" na seção 7. Blocos sem teto
+    de exibição (testado com 70 robôs simultâneos).
+16. 4 bugs corrigidos numa revisão de código (`code-review` skill, xhigh
+    effort): `ml/selector.py` — `_open_trades` era uma entrada única por
+    símbolo, virou fila FIFO (um robô pode ter várias posições abertas no
+    mesmo símbolo, `max_open_positions=3`); `core/agent_v2.py` —
+    cancelamento (shutdown) não marcava `_death_reported`/`phase`, robô
+    ficava "pendurado" sem fechar o ciclo de vida (sem disparar `on_death`,
+    corretamente — cancelamento não é eliminação por mérito); `organism.py`
+    — `Professor.build_curriculum()` nunca recebia candles reais, o ajuste
+    por volatilidade nunca rodava; `utils/config.py` — `allowed_timeframes`
+    não incluía "1w", rejeitando um timeframe que o resto do sistema já
+    suporta.
+17. Evoluir o julgamento do Estrategista (hoje é regra de threshold +
+    pesquisa determinística) pra um agente/LLM com mais nuance. Testar
+    contra a Bybit testnet de verdade
     (`python -m darwin_agent --universe 1000 --roots 5`), incluindo
     `investigator_research.py --loop` e `strategist_research.py --loop`
     rodando em paralelo com uma `ANTHROPIC_API_KEY` de verdade.
