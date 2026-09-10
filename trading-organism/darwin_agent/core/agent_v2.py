@@ -105,6 +105,13 @@ class DarwinAgentV2:
         self._aggression_level = max(0.5, min(3.0, float(config.aggression_level)))
         self._candle_lookback = 120 if self._scan_timeframe == TimeFrame.M1 else 100
 
+        # Retomada de estado (ver export_state/import_state) — quando este
+        # robô é religado depois de um restart do processo (não nasce novo),
+        # o saldo de paper trading tem que começar do que ele JÁ tinha, não
+        # do zero de novo (ver _init_markets).
+        self._paper_balance_override: Optional[float] = None
+        self._resumed = False
+
     def _resolve_timeframe(self, timeframe_value: str) -> TimeFrame:
         mapping = {
             "1m": TimeFrame.M1, "5m": TimeFrame.M5, "15m": TimeFrame.M15,
@@ -118,6 +125,75 @@ class DarwinAgentV2:
         (ver CLAUDE.md: 'não há ajuste de parâmetro por fora' da clonagem)."""
         self.selector.import_from_dna(parent.selector.export_for_dna(), mutation_rate=0.0)
 
+    def export_state(self) -> dict:
+        """Estado completo pra retomar ESTE robô depois de um restart do
+        processo — além do que já vai em `RobotRecord` (só o retrato pro
+        painel), isso inclui o cérebro aprendido (Q-learning + regime
+        stats + Thompson sampling, via `selector.export_for_dna()`) e os
+        marcos internos de vida (marco de clonagem, cooldown). Sem isso,
+        "retomar" seria só um `RobotRecord` bonito com um robô por trás
+        que nasceu de novo do zero. Não inclui o histórico trade-a-trade
+        de `HealthSystem.history` (verbose, não essencial pra continuar
+        operando certo)."""
+        return {
+            "health": {
+                "peak_capital": self.health.peak_capital,
+                "current_capital": self.health.current_capital,
+                "is_alive": self.health.is_alive,
+                "win_streak": self.health.win_streak,
+                "loss_streak": self.health.loss_streak,
+                "total_trades": self.health.total_trades,
+                "winning_trades": self.health.winning_trades,
+            },
+            "selector_dna": self.selector.export_for_dna(),
+            "clones_generated": self.clones_generated,
+            "clone_milestone": self._clone_milestone,
+            "cycle_count": self.cycle_count,
+            "born_at": self.born_at.isoformat(),
+            "cooldown_until": self.cooldown_until.isoformat() if self.cooldown_until else None,
+            "learned_cooldown_mult": self._learned_cooldown_mult,
+        }
+
+    def import_state(self, data: dict):
+        """Aplica um estado salvo (ver `export_state`) — chamar logo depois
+        do `__init__`, ANTES de `run()`, pra este robô continuar
+        exatamente de onde parou (capital, cérebro, marco de clonagem) em
+        vez de nascer do zero de novo."""
+        h = data.get("health", {})
+        self.health.peak_capital = h.get("peak_capital", self.health.peak_capital)
+        self.health.current_capital = h.get("current_capital", self.health.current_capital)
+        self.health.is_alive = h.get("is_alive", True)
+        self.health.win_streak = h.get("win_streak", 0)
+        self.health.loss_streak = h.get("loss_streak", 0)
+        self.health.total_trades = h.get("total_trades", 0)
+        self.health.winning_trades = h.get("winning_trades", 0)
+
+        if "selector_dna" in data:
+            self.selector.import_from_dna(data["selector_dna"], mutation_rate=0.0)
+            # import_brain() aplica um "boost" de epsilon (min(0.3, eps*1.5))
+            # pensado pra herança de clone (mais exploração no filho) — não
+            # respeita mutation_rate=0.0. Pra RETOMADA exata (mesmo robô, não
+            # um clone) o epsilon salvo é restaurado ao pé da letra aqui.
+            saved_epsilon = data["selector_dna"].get("brain", {}).get("epsilon")
+            if saved_epsilon is not None:
+                self.brain.epsilon = saved_epsilon
+
+        self.clones_generated = data.get("clones_generated", 0)
+        self._clone_milestone = data.get("clone_milestone", self.config.starting_capital)
+        self.cycle_count = data.get("cycle_count", 0)
+        born_at = data.get("born_at")
+        if born_at:
+            self.born_at = datetime.fromisoformat(born_at)
+        cooldown_until = data.get("cooldown_until")
+        self.cooldown_until = datetime.fromisoformat(cooldown_until) if cooldown_until else None
+        self._learned_cooldown_mult = data.get("learned_cooldown_mult", 5.0)
+
+        # Sem isso, _init_markets criaria o PaperTradingAdapter com saldo
+        # = starting_capital de novo (ver ali) — apagaria o resumo na hora
+        # do primeiro fechamento de posição.
+        self._paper_balance_override = self.health.current_capital
+        self._resumed = True
+
     async def _init_markets(self):
         for name, mc in self.config.markets.items():
             if not mc.enabled:
@@ -130,7 +206,10 @@ class DarwinAgentV2:
                         "api_key": mc.api_key, "api_secret": mc.api_secret, "testnet": mc.testnet,
                     })
                 # Sempre paper trading nesta fase — nada de dinheiro real (ver CLAUDE.md).
-                adapter = PaperTradingAdapter(real, self.config.starting_capital)
+                # Robô retomado (import_state) começa o saldo de papel de
+                # onde ele já estava, não do zero de novo.
+                paper_balance = self._paper_balance_override if self._paper_balance_override is not None else self.config.starting_capital
+                adapter = PaperTradingAdapter(real, paper_balance)
                 if await adapter.connect():
                     self.markets[name] = adapter
                     self.logger.info(f"[{self.robot_id}] Connected: {name} [PAPER] symbol={self.symbol}")
@@ -165,7 +244,11 @@ class DarwinAgentV2:
             await self._die(f"Estrategista recusou a estratégia no nascimento: {reason}")
             return
 
-        self.logger.born(self.config.starting_capital, self.parent_id)
+        if self._resumed:
+            self.logger.info(f"[{self.robot_id}] RESUMED capital=${self.health.current_capital:.2f} "
+                            f"(retomando de onde parou — restart do processo)")
+        else:
+            self.logger.born(self.config.starting_capital, self.parent_id)
         await self._init_markets()
         if not self.markets:
             await self._die("No markets available")

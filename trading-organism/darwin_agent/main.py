@@ -63,19 +63,30 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
     from darwin_agent.dashboard import start_dashboard
     dashboard_task = asyncio.create_task(start_dashboard(config.dashboard_port, organism.state_file))
 
-    # Bootstrap dev: fila de estratégias já pesquisadas (ver investigator.py).
-    # Em produção o Investigador roda continuamente (~30min) alimentando
-    # essa mesma fila via ingest() — aqui é só o ponto de partida.
-    investigador = bootstrap_feed()
-    proposals = investigador.all_ingested()
-    for i in range(roots):
-        proposal = proposals[i % len(proposals)]
-        symbol = symbols[i % len(symbols)]
-        robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol)
-        if robot_id:
-            print(f"  🐣 {robot_id} nasceu especialista em {proposal.implementation}/{proposal.timeframe}/{symbol} com ${config.starting_capital}")
-        else:
-            print(f"  ⛔ Estrategista recusou '{proposal.name}' em {symbol}: {reason}")
+    # Retomada: se o processo já rodou antes e foi desligado (Ctrl+C,
+    # reinício do computador), os robôs vivos voltam de onde pararam
+    # (capital, cérebro aprendido) em vez de nascer tudo de novo — ver
+    # Organism.resume_from_state / CLAUDE.md.
+    resumed = await organism.resume_from_state()
+    if resumed and organism.agents:
+        print(f"\n  ♻️  Retomado: {len(organism.agents)} robô(s) vivo(s) continuando de onde pararam "
+              f"({organism.full_state_file}).")
+    else:
+        if resumed:
+            print("\n  ⚠️  Havia estado salvo mas a população estava extinta — começando uma população nova.")
+        # Bootstrap dev: fila de estratégias já pesquisadas (ver investigator.py).
+        # Em produção o Investigador roda continuamente (~30min) alimentando
+        # essa mesma fila via ingest() — aqui é só o ponto de partida.
+        investigador = bootstrap_feed()
+        proposals = investigador.all_ingested()
+        for i in range(roots):
+            proposal = proposals[i % len(proposals)]
+            symbol = symbols[i % len(symbols)]
+            robot_id, reason = await organism.propose_and_spawn(proposal, symbol=symbol)
+            if robot_id:
+                print(f"  🐣 {robot_id} nasceu especialista em {proposal.implementation}/{proposal.timeframe}/{symbol} com ${config.starting_capital}")
+            else:
+                print(f"  ⛔ Estrategista recusou '{proposal.name}' em {symbol}: {reason}")
 
     # Absorve pesquisas novas de investigator_research.py (script separado,
     # cron/GitHub Actions) automaticamente, sem precisar reiniciar o processo.
@@ -99,6 +110,11 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
     finally:
         feed_task.cancel()
         dashboard_task.cancel()
+        # Último save ANTES de cancelar as tasks dos robôs (run_until já
+        # salva periodicamente, mas Ctrl+C pode interromper no meio do
+        # intervalo — sem isso, retomar depois perderia até
+        # save_interval_ticks de progresso).
+        organism.save_full_state()
         await organism.shutdown()
     print("\n🏁 População extinta ou encerrada.")
 

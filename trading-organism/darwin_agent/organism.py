@@ -23,6 +23,7 @@ from typing import Callable, Dict, List, Optional
 from darwin_agent.backtest import BacktestResult, run_backtest
 from darwin_agent.core.agent_v2 import DarwinAgentV2
 from darwin_agent.investigator import StrategyProposal
+from darwin_agent.leaderboard import LeaderboardEntry
 from darwin_agent.markets.base import TimeFrame
 from darwin_agent.professor import Professor
 from darwin_agent.strategist import Strategist, StrategyReview, TrackRecord
@@ -89,6 +90,10 @@ class Organism:
         self._real_adapter_factory = real_adapter_factory
         self.state_file = state_file
         self.history_file = os.path.join(os.path.dirname(state_file) or ".", "history.jsonl")
+        # Estado completo pra RETOMAR a população depois de um restart do
+        # processo (diferente de population.json, que é só o retrato pro
+        # painel) — ver save_full_state/resume_from_state.
+        self.full_state_file = os.path.join(os.path.dirname(state_file) or ".", "organism_state.json")
         self.heartbeat_by_timeframe = heartbeat_by_timeframe
 
         self.agents: Dict[str, DarwinAgentV2] = {}
@@ -561,6 +566,92 @@ class Organism:
         except Exception:
             pass
 
+    def save_full_state(self):
+        """Estado completo pra RETOMAR a população depois de um restart do
+        processo — diferente de `_save_state()` (retrato leve só pro
+        painel), isso inclui o cérebro aprendido de cada robô vivo
+        (`DarwinAgentV2.export_state()`), o ranking de estratégias, e a
+        fila de pendências da Sala de Risco. Sem isso, desligar o processo
+        significaria começar a população do zero toda vez."""
+        self._sync_alive_records()
+        agent_states = {}
+        for rid, agent in self.agents.items():
+            try:
+                agent_states[rid] = agent.export_state()
+            except Exception as e:
+                print(f"[Organism] não consegui exportar estado de {rid}, ele não será retomado: {e}")
+        data = {
+            "saved_at": _utcnow().isoformat(),
+            "next_symbol_idx": self._next_symbol_idx,
+            "pending_clones": self._pending_clones,
+            "leaderboard": [asdict(e) for e in self.strategist.leaderboard.all_entries()],
+            "records": {rid: asdict(r) for rid, r in self.records.items()},
+            "agent_states": agent_states,
+        }
+        directory = os.path.dirname(self.full_state_file) or "."
+        os.makedirs(directory, exist_ok=True)
+        tmp = self.full_state_file + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, self.full_state_file)
+
+    async def resume_from_state(self) -> bool:
+        """Lê `full_state_file` (se existir) e religa a população de onde
+        parou: robôs vivos voltam com o capital/cérebro/marcos exatos de
+        antes (não nascem de novo — ver `DarwinAgentV2.import_state`);
+        robôs mortos voltam só como registro histórico. Retorna False se
+        não havia nada salvo (primeira vez rodando) — quem chama decide
+        então nascer uma população nova."""
+        if not os.path.exists(self.full_state_file):
+            return False
+        try:
+            with open(self.full_state_file) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[Organism] estado salvo corrompido/ilegível, começando do zero: {e}")
+            return False
+
+        self._next_symbol_idx = data.get("next_symbol_idx", 0)
+        self._pending_clones = data.get("pending_clones", [])
+        for e in data.get("leaderboard", []):
+            entry = LeaderboardEntry(**e)
+            self.strategist.leaderboard._entries[entry.strategy_id] = entry
+
+        agent_states = data.get("agent_states", {})
+        resumed_count = 0
+        for rid, rec_data in data.get("records", {}).items():
+            rec = RobotRecord(**rec_data)
+            self.records[rid] = rec
+            if rec.status != "alive":
+                continue
+            state = agent_states.get(rid)
+            if not state:
+                # Registro dizia "vivo" mas não tinha cérebro/saúde salvos
+                # (não deveria acontecer) — não dá pra religar sem isso;
+                # melhor marcar como perdido do que nascer do zero por
+                # baixo do mesmo ID.
+                rec.status = "dead"
+                rec.died_at = _utcnow().isoformat()
+                rec.cause_of_death = "Estado do robô perdido no reinício do processo"
+                continue
+            cfg = self._new_config(rec.symbol, rec.timeframe)
+            agent = DarwinAgentV2(
+                config=cfg, strategy_name=rec.strategy_name, robot_id=rid,
+                strategist=self.strategist, parent_id=rec.parent_id,
+                strategy_params=rec.strategy_params, on_clone=self._handle_clone,
+                on_death=self._handle_death, real_adapter_factory=self._real_adapter_factory,
+            )
+            agent.import_state(state)
+            async with self._lock:
+                self.agents[rid] = agent
+                self.tasks[rid] = asyncio.create_task(agent.run())
+            resumed_count += 1
+
+        print(f"[Organism] retomado de {self.full_state_file}: {resumed_count} robô(s) vivo(s), "
+              f"{len(self.records)} no histórico total")
+        self._save_state()
+        return True
+
     def summary(self) -> dict:
         self._sync_alive_records()
         alive = [r for r in self.records.values() if r.status == "alive"]
@@ -588,9 +679,11 @@ class Organism:
             tick += 1
             if tick % save_interval_ticks == 0:
                 self._save_state()
+                self.save_full_state()
             if tick % history_interval_ticks == 0:
                 self._record_history()
         self._save_state()
+        self.save_full_state()
         self._record_history()
 
     async def shutdown(self):

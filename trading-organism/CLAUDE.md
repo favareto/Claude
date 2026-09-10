@@ -13,7 +13,14 @@ vez mais especializado por ativo.
 **Não é um sistema fechado de 2-3 ativos nem de 4 estratégias fixas.** São
 dois eixos abertos, ambos em constante atualização:
 - **Ativos**: até ~1000 símbolos negociáveis reais (não uma listinha fixa) —
-  ver `markets/symbol_universe.py`.
+  ver `markets/symbol_universe.py`. **Não é só cripto** — o plano explícito
+  do usuário inclui índices globais, commodities, futuros e ações de bolsa
+  também. Hoje só existe `markets/crypto.py` (Bybit) porque foi o primeiro
+  adapter construído, mas a arquitetura já é agnóstica a isso: `Organism`/
+  `DarwinAgentV2` só conversam com a interface abstrata `MarketAdapter`
+  (`markets/base.py`) — adicionar outra classe de ativo é escrever um novo
+  adapter (ex: algo tipo Alpha Vantage pra dados fora de cripto), não
+  reescrever o organismo. Ainda não construído.
 - **Estratégias**: um ranking vivo de até 500, realimentado continuamente
   pelo Investigador e reordenado pelos resultados reais dos robôs — ver
   `leaderboard.py`.
@@ -170,6 +177,51 @@ Bybit via API pública, spot + perpétuos USDT combinados; cai num fallback
 curado de ~30 pares líquidos se a rede falhar). Não é um sistema fechado
 de Bitcoin/Ethereum: qualquer ativo negociável na exchange integrada entra
 no pool de onde o Organism sorteia especialistas.
+
+**Retomada de estado (resume) — Feito.** Decisão do usuário: rodar de
+graça no próprio computador, desligando quando quiser, mas SEM perder
+progresso a cada restart (capital acumulado, cérebro de Q-learning
+aprendido, marco de clonagem). Antes disso, `main.py run_forever` sempre
+nascia uma população nova do zero a cada execução — `population.json` era
+só um retrato pro painel, não um ponto de retomada.
+
+Agora existe um segundo arquivo, `data/organism_state.json` (separado do
+`population.json` leve, pra não inchar o que o painel lê), com tudo que é
+necessário pra religar cada robô vivo EXATAMENTE de onde parou:
+- `Organism.save_full_state()` — grava o `RobotRecord` de todo mundo (vivo
+  e morto) + `DarwinAgentV2.export_state()` de cada robô vivo (saúde,
+  cérebro via `selector.export_for_dna()` — reaproveitando a mesma
+  infraestrutura que já existia pra herança de clone —, marco de
+  clonagem, cooldown) + o ranking de estratégias + a fila de pendências da
+  Sala de Risco + o índice de rotação de símbolos. Chamado no mesmo
+  intervalo do save leve dentro de `run_until`, e mais uma vez no
+  `finally` de `main.py` (Ctrl+C não pode perder o intervalo entre saves).
+- `Organism.resume_from_state()` — lê esse arquivo (se existir) e religa
+  cada robô vivo como uma `DarwinAgentV2` nova + `import_state()` (não
+  nasce de novo); robôs mortos voltam só como registro histórico, sem
+  religar tarefa nenhuma. Retorna `False` se não havia nada salvo
+  (primeira execução) — `main.py` só bootstrap uma população nova nesse
+  caso (ou se a população salva estava extinta).
+
+**Dois bugs reais encontrados e corrigidos no caminho** (só apareceriam
+com retomada de verdade, por isso passaram despercebidos até agora):
+1. `_init_markets()` sempre criava o `PaperTradingAdapter` com saldo =
+   `starting_capital` (nunca o capital acumulado) — um robô retomado com
+   $23 veria o saldo voltar pra $5 assim que a primeira posição fechasse
+   e `get_balance()` fosse lido. Corrigido com `_paper_balance_override`.
+2. `Brain.import_brain()` aplica um "boost" de epsilon (`min(0.3,
+   epsilon*1.5)`) pensado pra herança de CLONE (mais exploração no filho)
+   — ignorava `mutation_rate=0.0` e distorcia o epsilon numa retomada
+   exata (não é um clone, é o mesmo robô). `DarwinAgentV2.import_state()`
+   restaura o epsilon salvo ao pé da letra por cima, sem tocar no método
+   compartilhado (clonagem continua com o comportamento de sempre).
+
+Testado de ponta a ponta com objetos reais: population + capital + cérebro
+(pesos não-triviais) + marco de clonagem + clones_generated + leaderboard
++ fila da Sala de Risco, tudo simulando um "restart do processo"
+(`Organism` novo do zero lendo o arquivo salvo pelo `Organism` anterior) —
+cada valor bate exatamente com o que foi salvo, robô morto não religa, e
+o saldo do adapter de paper trading não reseta.
 
 ### 6. Visualizador — ABANDONADO (decisão explícita)
 Ideia original: ambiente 2D top-down estilo Tibia/escritório (bonequinhos
@@ -588,9 +640,23 @@ A documentação de arquitetura original dos autores está preservada em
     por volatilidade nunca rodava; `utils/config.py` — `allowed_timeframes`
     não incluía "1w", rejeitando um timeframe que o resto do sistema já
     suporta.
-17. Evoluir o julgamento do Estrategista (hoje é regra de threshold +
+17. ~~Retomada de estado (resume): rodar de graça no próprio computador
+    sem perder progresso a cada restart.~~ Feito — ver "Macro-organismo"
+    acima (`Organism.save_full_state`/`resume_from_state`,
+    `DarwinAgentV2.export_state`/`import_state`, `data/organism_state.json`).
+    Decisão do usuário: rodar local (grátis, sem VM), mas com retomada
+    real em vez de aceitar reiniciar do zero. Dois bugs reais corrigidos
+    no processo (saldo de paper trading resetando, epsilon do brain
+    distorcido por uma fórmula pensada pra herança de clone). Testado de
+    ponta a ponta simulando um restart de processo completo.
+18. Evoluir o julgamento do Estrategista (hoje é regra de threshold +
     pesquisa determinística) pra um agente/LLM com mais nuance. Testar
     contra a Bybit testnet de verdade
     (`python -m darwin_agent --universe 1000 --roots 5`), incluindo
     `investigator_research.py --loop` e `strategist_research.py --loop`
     rodando em paralelo com uma `ANTHROPIC_API_KEY` de verdade.
+19. Expandir pra ativos fora de cripto (índices globais, commodities,
+    futuros, ações de bolsa) — pedido explícito do usuário, ainda não
+    construído. Precisa de um novo `MarketAdapter` (ver "Visão geral"
+    acima) pra cada fonte de dados nova; `Organism`/`DarwinAgentV2` não
+    deveriam precisar mudar.
