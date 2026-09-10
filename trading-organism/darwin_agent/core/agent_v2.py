@@ -201,6 +201,11 @@ class DarwinAgentV2:
             try:
                 if self._real_adapter_factory:
                     real = self._real_adapter_factory(mc)
+                elif name == "stocks":
+                    # Ações/índices/commodities/futuros via Yahoo Finance —
+                    # dado público, sem api_key (ver markets/yahoo.py).
+                    from darwin_agent.markets.yahoo import YahooFinanceAdapter
+                    real = YahooFinanceAdapter({"testnet": mc.testnet})
                 else:
                     real = BybitAdapter({
                         "api_key": mc.api_key, "api_secret": mc.api_secret, "testnet": mc.testnet,

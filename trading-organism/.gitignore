@@ -21,6 +21,8 @@ data/logs/*.log
 data/logs/*.jsonl
 data/agent_state.json
 data/population.json
+data/organism_state.json
+data/history.jsonl
 
 # IDE
 .vscode/

@@ -48,6 +48,11 @@ class AgentConfig:
 
     markets: Dict[str, MarketConfig] = field(default_factory=lambda: {
         "crypto": MarketConfig(enabled=True, testnet=True),
+        # Ações/índices/commodities/futuros via Yahoo Finance
+        # (markets/yahoo.py) — desabilitado por padrão; ligar explicitamente
+        # (config.yaml ou --assets stocks) quando quiser um universo
+        # multi-asset. Não precisa de api_key (dado público).
+        "stocks": MarketConfig(enabled=False, testnet=True),
     })
     health: HealthConfig = field(default_factory=HealthConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)

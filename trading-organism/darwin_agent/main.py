@@ -11,6 +11,7 @@ import argparse
 import os
 import signal
 import sys
+from typing import Optional
 
 from darwin_agent.investigator import bootstrap_feed
 from darwin_agent.organism import Organism
@@ -25,7 +26,7 @@ BANNER = """
 """
 
 
-async def run_forever(config: AgentConfig, symbols: list, roots: int):
+async def run_forever(config: AgentConfig, symbols: list, roots: int, asset_classes: Optional[dict] = None):
     print(BANNER)
     print(f"  Capital por robô: ${config.starting_capital} | Clona em: +{(config.clone_multiplier - 1) * 100:.0f}% | "
           f"Morre em: -{config.health.death_drawdown_pct:.0f}% do pico")
@@ -34,8 +35,11 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
     print("=" * 55)
 
     # ── Pre-flight: Run diagnostics before starting ──
+    # "stocks" (Yahoo Finance) não passa por aqui: o diagnóstico é
+    # específico da Bybit (assinatura HMAC, endpoints da API) e não faz
+    # sentido rodar contra um mercado sem chave/autenticação nenhuma.
     for name, mc in config.markets.items():
-        if mc.enabled:
+        if mc.enabled and name != "stocks":
             env = "TESTNET" if mc.testnet else "⚠️ MAINNET"
             print(f"\n  🔍 Running pre-flight diagnostics for {name} ({env})...")
 
@@ -56,7 +60,11 @@ async def run_forever(config: AgentConfig, symbols: list, roots: int):
     # heartbeat_by_timeframe=True: cada robô consulta o mercado num ritmo
     # coerente com seu timeframe (1m escaneia a cada 30s; 1w a cada 6h) —
     # não faz sentido um robô semanal ficar batendo na API toda hora.
-    organism = Organism(base_config=config, symbols=symbols, heartbeat_by_timeframe=True)
+    # asset_classes (symbol -> "crypto"/"stocks") deixa o universo misturar
+    # classes de ativo diferentes — cada robô só liga no adapter certo pro
+    # SEU símbolo (ver Organism._new_config).
+    organism = Organism(base_config=config, symbols=symbols, heartbeat_by_timeframe=True,
+                        asset_classes=asset_classes)
 
     # Painel de apurações — só leitura, lê data/population.json (ver
     # dashboard.py). Sobe junto, sempre, é seguro (não decide nada).
@@ -213,6 +221,12 @@ def main():
     parser.add_argument("--universe", type=int, default=None,
                         help="Busca até N ativos reais negociáveis na Bybit (spot+linear USDT), "
                              "ex: --universe 1000. Cai num fallback curado se a rede falhar.")
+    parser.add_argument("--assets", default=None,
+                        help="Classes de ativo a ligar nesta execução, separadas por vírgula "
+                             "(ex: --assets crypto,stocks). Sobrescreve o habilitado em config.yaml. "
+                             "'stocks' = ações/índices/commodities/futuros via Yahoo Finance "
+                             "(grátis, sem chave — ver markets/yahoo.py). Sem esta flag, usa o que "
+                             "já está habilitado em config.yaml (crypto por padrão).")
     parser.add_argument("--roots", type=int, default=1,
                         help="Quantos robôs raiz nascem no início (um por proposta/ativo, ciclando)")
     parser.add_argument("--config", default="config.yaml")
@@ -230,6 +244,16 @@ def main():
         print(f"\n❌ Configuration error: {e}")
         print("   Fix config file and try again.")
         sys.exit(1)
+
+    if args.assets:
+        wanted = {a.strip() for a in args.assets.split(",") if a.strip()}
+        unknown = wanted - set(config.markets.keys())
+        if unknown:
+            print(f"\n❌ --assets desconhecido(s): {', '.join(sorted(unknown))}. "
+                  f"Disponíveis: {', '.join(sorted(config.markets.keys()))}")
+            sys.exit(1)
+        for name, mc in config.markets.items():
+            mc.enabled = name in wanted
 
     if args.status:
         show_status(config)
@@ -251,8 +275,11 @@ def main():
         print("   Edit config.yaml and try again.")
         sys.exit(1)
 
-    # Warn if no API keys
+    # Warn if no API keys — não se aplica a "stocks" (Yahoo Finance é dado
+    # público, sem chave nenhuma, ver markets/yahoo.py).
     for name, mc in config.markets.items():
+        if name == "stocks":
+            continue
         if mc.enabled and (not mc.api_key or mc.api_key.startswith("YOUR")):
             print(f"\n⚠️  Warning: Market '{name}' enabled but API key not set.")
             print(f"   Edit config.yaml with valid Bybit API keys.")
@@ -267,15 +294,43 @@ def main():
             print(f"\n⚠️  Market '{name}' está em MAINNET — só será usado como fonte de "
                   f"preços; a execução continua sempre em paper trading.")
 
-    if args.symbols:
-        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
-    elif args.universe:
-        from darwin_agent.markets.symbol_universe import fetch_symbol_universe
-        print(f"\n  🌐 Buscando até {args.universe} ativos negociáveis na Bybit...")
-        symbols = asyncio.run(fetch_symbol_universe(target_size=args.universe))
-        print(f"  📋 Universo: {len(symbols)} ativos")
-    else:
-        symbols = ["BTCUSDT"]
+    # Universo pode misturar mais de uma classe de ativo (cripto via Bybit +
+    # ações/índices/commodities/futuros via Yahoo Finance) — asset_classes
+    # mapeia cada símbolo pro nome do mercado em config.markets que ele usa
+    # (ver Organism._new_config, que só liga o adapter certo por robô).
+    symbols = []
+    asset_classes = {}
+
+    crypto_enabled = config.markets.get("crypto") and config.markets["crypto"].enabled
+    stocks_enabled = config.markets.get("stocks") and config.markets["stocks"].enabled
+
+    if crypto_enabled:
+        if args.symbols:
+            crypto_symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+        elif args.universe:
+            from darwin_agent.markets.symbol_universe import fetch_symbol_universe
+            print(f"\n  🌐 Buscando até {args.universe} ativos negociáveis na Bybit...")
+            crypto_symbols = asyncio.run(fetch_symbol_universe(target_size=args.universe))
+            print(f"  📋 Universo cripto: {len(crypto_symbols)} ativos")
+        else:
+            crypto_symbols = ["BTCUSDT"]
+        symbols.extend(crypto_symbols)
+        asset_classes.update({s: "crypto" for s in crypto_symbols})
+    elif args.symbols or args.universe:
+        print("\n⚠️  --symbols/--universe ignorados: mercado 'crypto' não está habilitado "
+              "(veja --assets/config.yaml).")
+
+    if stocks_enabled:
+        from darwin_agent.markets.multi_asset_universe import get_multi_asset_universe
+        stock_symbols = get_multi_asset_universe()
+        print(f"  📋 Universo multi-asset (Yahoo Finance): {len(stock_symbols)} ativos "
+              f"(índices, commodities/futuros, ações US/BR)")
+        symbols.extend(stock_symbols)
+        asset_classes.update({s: "stocks" for s in stock_symbols})
+
+    if not symbols:
+        print("\n❌ Nenhum ativo pra operar — nenhuma classe de mercado habilitada.")
+        sys.exit(1)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -295,7 +350,7 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
 
     try:
-        loop.run_until_complete(run_forever(config, symbols, args.roots))
+        loop.run_until_complete(run_forever(config, symbols, args.roots, asset_classes))
     except (asyncio.CancelledError, KeyboardInterrupt):
         print("\n👋 Shutdown complete.")
     finally:

@@ -13,14 +13,14 @@ vez mais especializado por ativo.
 **Não é um sistema fechado de 2-3 ativos nem de 4 estratégias fixas.** São
 dois eixos abertos, ambos em constante atualização:
 - **Ativos**: até ~1000 símbolos negociáveis reais (não uma listinha fixa) —
-  ver `markets/symbol_universe.py`. **Não é só cripto** — o plano explícito
-  do usuário inclui índices globais, commodities, futuros e ações de bolsa
-  também. Hoje só existe `markets/crypto.py` (Bybit) porque foi o primeiro
-  adapter construído, mas a arquitetura já é agnóstica a isso: `Organism`/
-  `DarwinAgentV2` só conversam com a interface abstrata `MarketAdapter`
-  (`markets/base.py`) — adicionar outra classe de ativo é escrever um novo
-  adapter (ex: algo tipo Alpha Vantage pra dados fora de cripto), não
-  reescrever o organismo. Ainda não construído.
+  ver `markets/symbol_universe.py`. **Não é só cripto** — também índices
+  globais, commodities, futuros e ações de bolsa via `markets/yahoo.py`
+  (Yahoo Finance/`yfinance`, grátis, sem cadastro nem chave — decisão
+  explícita do usuário, ver "Macro-organismo" abaixo pro porquê dessa
+  fonte). `Organism`/`DarwinAgentV2` só conversam com a interface abstrata
+  `MarketAdapter` (`markets/base.py`) — adicionar OUTRA classe de ativo
+  ainda (ex: uma fonte paga com contrato de verdade) é só escrever mais um
+  adapter, não reescrever o organismo.
 - **Estratégias**: um ranking vivo de até 500, realimentado continuamente
   pelo Investigador e reordenado pelos resultados reais dos robôs — ver
   `leaderboard.py`.
@@ -177,6 +177,58 @@ Bybit via API pública, spot + perpétuos USDT combinados; cai num fallback
 curado de ~30 pares líquidos se a rede falhar). Não é um sistema fechado
 de Bitcoin/Ethereum: qualquer ativo negociável na exchange integrada entra
 no pool de onde o Organism sorteia especialistas.
+
+**Multi-asset (além de cripto) — Feito.** Pedido explícito do usuário:
+não é só cripto, também índices globais, commodities, futuros e ações de
+bolsa. Decisão de fonte de dados (o usuário escolheu entre 3 opções, ver
+histórico): **Yahoo Finance via `yfinance`**, não TradingView (sem API
+oficial, só scraping) nem Alpha Vantage/Twelve Data (API oficial de
+verdade, mas cadastro + chave + cobertura mais fraca de índices/commodities
+no tier grátis). `yfinance` também não é oficial — mesma categoria de
+ressalva do TradingView, só que é uma lib madura e amplamente usada, ao
+contrário de scraping ad-hoc; pode quebrar sem aviso se a Yahoo mudar algo,
+sem SLA. Trocar de fonte depois é só escrever outro `MarketAdapter`.
+
+- `markets/yahoo.py: YahooFinanceAdapter` — só fornece preços (igual todo
+  adapter deste projeto, nunca executa ordem real). `yfinance` é síncrono/
+  bloqueante — toda chamada passa por `asyncio.to_thread` pra não travar o
+  event loop e os outros robôs concorrentes. Não tem intervalo nativo de
+  4h — busca 1h e reamostra via `pandas.resample` (OHLC agregado
+  corretamente: open=primeiro, high=máx, low=mín, close=último, volume=soma).
+- `markets/multi_asset_universe.py` — lista curada à mão (Yahoo não tem um
+  endpoint público de "lista todos os símbolos", diferente da Bybit) com
+  índices (`^GSPC`, `^BVSP`, `^DJI`...), commodities/futuros (`GC=F` ouro,
+  `CL=F` WTI...), ações US (`AAPL`, `MSFT`...) e ações B3 (`PETR4.SA`,
+  `VALE3.SA`...).
+- **Roteamento por classe de ativo** — o ponto estrutural real desse
+  trabalho, não só "adicionar um adapter": um robô especialista em AAPL não
+  pode tentar conversar com a Bybit, e vice-versa. `Organism(asset_classes=
+  {symbol: market_name})` mapeia cada símbolo pro mercado certo;
+  `Organism._new_config()` só deixa HABILITADO, na config daquele robô
+  específico, o mercado da classe de ativo do símbolo dele (todos os outros
+  ficam desligados ali, mesmo que estejam ligados globalmente). CLI:
+  `--assets crypto,stocks` (ou só um dos dois) liga as classes desejadas
+  nessa execução.
+- **Dois bugs reais na mesma categoria, achados e corrigidos**: (1)
+  `_fetch_recent_candles` (candles pro currículo do Professor e pro
+  backtest) pegava "o primeiro mercado habilitado" em vez do mercado da
+  classe de ativo do símbolo — com crypto+stocks habilitados ao mesmo
+  tempo, isso faria o Organism backtestar AAPL com adapter/dado de cripto.
+  (2) O loop de diagnóstico de pre-flight em `main.py` (`bybit_errors.
+  run_diagnostics`) rodava pra QUALQUER mercado habilitado, inclusive
+  "stocks" — mas é um diagnóstico específico da Bybit (assinatura HMAC,
+  endpoints da API), sem sentido nenhum pra um mercado sem chave/API key
+  como o Yahoo. Os dois corrigidos com checagem explícita por nome de
+  mercado.
+- Testado de ponta a ponta: unit puro do roteamento (`_new_config` sem
+  precisar de rede/adapter nenhum), `YahooFinanceAdapter` com candles
+  mockados (1h, reamostragem pra 4h, preço atual, falha de rede não
+  derruba o robô), e um robô de ação nascendo pelo caminho de PRODUÇÃO
+  real (sem injetar adapter de teste) conectando de verdade num
+  `YahooFinanceAdapter` — e uma execução real via `--assets stocks` que
+  chegou a tentar rede de verdade (bloqueada neste sandbox por política,
+  mas os robôs nasceram e degradaram graciosamente sem crashar, exatamente
+  como o resto do sistema já fazia pra falha de rede da Bybit).
 
 **Retomada de estado (resume) — Feito.** Decisão do usuário: rodar de
 graça no próprio computador, desligando quando quiser, mas SEM perder
@@ -655,8 +707,6 @@ A documentação de arquitetura original dos autores está preservada em
     (`python -m darwin_agent --universe 1000 --roots 5`), incluindo
     `investigator_research.py --loop` e `strategist_research.py --loop`
     rodando em paralelo com uma `ANTHROPIC_API_KEY` de verdade.
-19. Expandir pra ativos fora de cripto (índices globais, commodities,
-    futuros, ações de bolsa) — pedido explícito do usuário, ainda não
-    construído. Precisa de um novo `MarketAdapter` (ver "Visão geral"
-    acima) pra cada fonte de dados nova; `Organism`/`DarwinAgentV2` não
-    deveriam precisar mudar.
+19. ~~Expandir pra ativos fora de cripto (índices globais, commodities,
+    futuros, ações de bolsa).~~ Feito — ver "Macro-organismo" acima
+    (`markets/yahoo.py`, `markets/multi_asset_universe.py`, `--assets`).

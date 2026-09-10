@@ -81,9 +81,17 @@ class Organism:
     def __init__(self, base_config: AgentConfig, symbols: List[str],
                  real_adapter_factory: Optional[Callable[[dict], object]] = None,
                  state_file: str = STATE_FILE,
-                 heartbeat_by_timeframe: bool = False):
+                 heartbeat_by_timeframe: bool = False,
+                 asset_classes: Optional[Dict[str, str]] = None):
+        """`asset_classes`: symbol -> nome do mercado em `base_config.markets`
+        (ex: "crypto" ou "stocks") — pra saber qual adapter cada robô deve
+        usar quando o universo mistura ativos de fontes diferentes (ver
+        `_new_config`, `markets/yahoo.py`). Símbolo ausente do mapa vira
+        "crypto" por padrão (mantém compatibilidade com quem só passa uma
+        lista de símbolos de cripto, como sempre foi)."""
         self.base_config = base_config
         self.symbols = symbols
+        self._asset_classes = asset_classes or {}
         self._next_symbol_idx = 0
         self.strategist = Strategist(base_config.risk)
         self.professor = Professor()
@@ -122,6 +130,14 @@ class Organism:
             cfg.scan_timeframe = timeframe
             if self.heartbeat_by_timeframe:
                 cfg.heartbeat_interval = HEARTBEAT_BY_TIMEFRAME.get(timeframe, cfg.heartbeat_interval)
+
+        # Universo multi-asset (crypto + ações/índices/commodities/futuros,
+        # ver markets/yahoo.py): cada robô só deve conectar no mercado da
+        # classe de ativo do SEU símbolo, nunca em todos os configurados —
+        # um robô de AAPL não tem porque tentar falar com a Bybit.
+        market_name = self._asset_classes.get(symbol, "crypto")
+        for name, mc in cfg.markets.items():
+            mc.enabled = mc.enabled and (name == market_name)
         return cfg
 
     async def spawn_root(self, symbol: Optional[str] = None,
@@ -196,11 +212,20 @@ class Organism:
         o nascimento se não conseguir dados (rede fora do ar, símbolo novo
         demais): retorna lista vazia e quem chama segue sem essa camada."""
         try:
-            mc = next((m for m in self.base_config.markets.values() if m.enabled), None)
-            if mc is None:
+            # Multi-asset (crypto + ações/índices/commodities/futuros via
+            # Yahoo Finance): tem que ser o mercado da classe de ativo DESSE
+            # símbolo, não "o primeiro habilitado" — com dois mercados
+            # habilitados ao mesmo tempo isso pegaria o adapter errado pra
+            # metade dos símbolos (backtestaria AAPL com dado de cripto).
+            market_name = self._asset_classes.get(symbol, "crypto")
+            mc = self.base_config.markets.get(market_name)
+            if mc is None or not mc.enabled:
                 return []
             if self._real_adapter_factory:
                 adapter = self._real_adapter_factory(mc)
+            elif market_name == "stocks":
+                from darwin_agent.markets.yahoo import YahooFinanceAdapter
+                adapter = YahooFinanceAdapter({"testnet": mc.testnet})
             else:
                 from darwin_agent.markets.crypto import BybitAdapter
                 adapter = BybitAdapter({"api_key": mc.api_key, "api_secret": mc.api_secret, "testnet": mc.testnet})
